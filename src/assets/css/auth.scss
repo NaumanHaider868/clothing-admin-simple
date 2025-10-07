@@ -1,0 +1,31 @@
+.auth {
+    font-family: 'circular';
+    flex-direction: column;
+    min-height: 100vh;
+
+    .navbar {
+        padding-top: 62px;
+
+        .logo {
+            width: 50px;
+            height: 50px;
+
+            i {
+                width: 100%;
+                height: 100%;
+                display: block;
+                background-image: url('../img/actions/logo.png');
+                background-position: center;
+                background-repeat: no-repeat;
+            }
+        }
+    }
+
+    .input-b {
+        border: 1px solid black;
+    }
+
+    .sl-bubble4 {
+        height: 24px;
+    }
+}
