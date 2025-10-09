@@ -19,7 +19,7 @@ function MainLayout() {
                     </section>
                 </div>
             </div>
-            <Footer />
+            {/* <Footer /> */}
         </>
     );
 }
