@@ -2,8 +2,6 @@ import React, { useRef, useEffect, useState } from "react";
 import Image1 from "../../../assets/img/product1.png";
 import Image2 from "../../../assets/img/product2.png";
 import Image3 from "../../../assets/img/product3.png";
-import "react-image-lightbox/style.css";
-import Lightbox from "react-image-lightbox";
 import { CiHeart } from "react-icons/ci";
 
 const images = [Image1, Image2, Image3];
@@ -118,7 +116,7 @@ export default function ViewProduct() {
                 </div>
             </div>
 
-            {isOpen && (
+            {/* {isOpen && (
                 <Lightbox
                     mainSrc={images[currentImageIndex]}
                     nextSrc={currentImageIndex < images.length - 1 ? images[currentImageIndex + 1] : null}
@@ -131,7 +129,7 @@ export default function ViewProduct() {
                     nextSrcDisabled={currentImageIndex >= images.length - 1}
                     prevSrcDisabled={currentImageIndex <= 0}
                 />
-            )}
+            )} */}
         </div>
     );
 }

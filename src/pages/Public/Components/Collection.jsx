@@ -1,216 +1,227 @@
 import React from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  createColumnHelper,
+} from "@tanstack/react-table";
+import { MdEdit, MdDelete } from "react-icons/md";
 import "../../../assets/css/style.scss";
 import noImage from "../../../assets/img/NoImage.jpg";
-import { MdEdit, MdDelete } from "react-icons/md";
-
-const apiResponse = {
-  status: "success",
-  data: [
-    {
-      id: 5,
-      name: "Basic Jogger Trousers",
-      description:
-        "Get ready to lounge in style with our Basic Jogger Trousers. Made from soft cotton, these joggers provide both comfort and a fashionable look. Perfect for everyday wear, these regular fit jog",
-      price: "15",
-      collection: "Winter 2025",
-      modelDetail: "The model is wearing size: L; Model height: 5.11ft",
-      isPublic: true,
-      gender: "men",
-      collectionType: "boys",
-      type: "",
-      onSale: false,
-      discountPercent: "0",
-      inStock: true,
-      createdAt: "2025-10-11T23:28:09.484Z",
-      updatedAt: "2025-10-11T23:28:09.484Z",
-      variants: [
-        {
-          id: 5,
-          productId: 5,
-          color: "#4B4841",
-          images: [
-            {
-              id: 13,
-              variantId: 5,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108117_3_10988177-3d8e-44e9-9da5-68b34b4b40bc.jpg?v=1758089830",
-            },
-            {
-              id: 14,
-              variantId: 5,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108117_4_9fbd8d5d-56f1-4085-bcca-3965fdd654bb.jpg?v=1758089830",
-            },
-            {
-              id: 15,
-              variantId: 5,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108117_5_e32e61e3-064a-4a3c-846e-14183302ca6f.jpg?v=1758089830",
-            },
-          ],
-          sizes: [
-            { id: 15, variantId: 5, size: "S", stockCount: 25 },
-            { id: 16, variantId: 5, size: "M", stockCount: 20 },
-            { id: 17, variantId: 5, size: "L", stockCount: 25 },
-            { id: 18, variantId: 5, size: "XL", stockCount: 15 },
-          ],
-        },
-        {
-          id: 6,
-          productId: 5,
-          color: "#1D1D1D",
-          images: [
-            {
-              id: 16,
-              variantId: 6,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108901_1_6ed3d000-78e2-4cb6-877f-bd658c6941de.jpg?v=1755088615",
-            },
-            {
-              id: 17,
-              variantId: 6,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108901_3_f28588cf-192d-4a44-a593-525cf31be1c5.jpg?v=1755088615",
-            },
-            {
-              id: 18,
-              variantId: 6,
-              imageUrl:
-                "https://outfitters.com.pk/cdn/shop/files/F0536108901_2_8ad85995-2e8d-4b59-8bb0-93a3f90485cb.jpg?v=1755088615",
-            },
-          ],
-          sizes: [
-            { id: 19, variantId: 6, size: "M", stockCount: 20 },
-            { id: 20, variantId: 6, size: "L", stockCount: 25 },
-            { id: 21, variantId: 6, size: "XL", stockCount: 15 },
-          ],
-        },
-      ],
-    },
-  ],
-  message: "Products fetched successfully",
-};
-
-const products = Array.isArray(apiResponse?.data) ? apiResponse.data : [];
+import { api } from "../../../utlis/customAPI";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Collection() {
-  const handleEdit = (product) => {
-    console.log("Edit product", product);
-  };
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["products"],
+    queryFn: async () => {
+      const payload = {};
+      const response = await api.post("/product/all", payload);
+      return response.data;
+    },
+  });
+  console.log(data);
+  const products = Array.isArray(data?.data) ? data.data : [];
 
-  const handleDelete = (productId) => {
-    console.log("Delete product", productId);
-  };
+  const handleEdit = (product) => console.log("Edit:", product);
+  const handleDelete = (id) => console.log("Delete:", id);
 
-  return (
-    <div className="collection w-full pr-[52px]">
-      <div className="mt-10 overflow-x-auto">
-        <div className="min-w-[900px] md:min-w-full">
-          <div className="flex flex-col gap-4">
-            {products.map((p) => (
-              <ProductListRow
-                key={p.id}
-                product={p}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+  const columnHelper = createColumnHelper();
 
-function ProductListRow({ product, onEdit, onDelete }) {
-  const firstImage = product?.variants?.[0]?.images?.[0]?.imageUrl || noImage;
-
-  const colors = product?.variants?.map((v) => v.color).filter(Boolean) || [];
-
-  const allSizes = product?.variants?.flatMap((v) =>
-    v.sizes?.map((s) => s.size)
-  );
-  const uniqueSizes = Array.from(new Set(allSizes));
-
-  const priceNum = Number(product?.price);
-  const discount = Number(product?.discountPercent || 0);
-  const finalPrice = (priceNum * (1 - discount / 100)).toFixed(2);
-
-  return (
-    <div
-      className="
-        grid 
-        grid-cols-[80px_1fr_1fr_1fr_auto_auto_auto_auto_120px] 
-        md:grid-cols-[70px_1fr_1fr_1fr_auto_auto_auto_auto_100px]
-        sm:grid-cols-[60px_1fr_1fr_1fr_auto_auto_auto_auto_80px]
-        items-center 
-        border-b 
-        last:border-b-0 
-        bg-white 
-        rounded-lg 
-        p-3 
-        gap-2 
-        text-[0.9rem]
-        shadow-sm
-      "
-    >
-      <div className="py-2 pr-2 flex justify-center">
-        <div className="w-12 h-12 rounded overflow-hidden border border-gray-200 bg-gray-50">
+  const columns = [
+    columnHelper.accessor("image", {
+      header: <div className="font-[monospace] font-xs">Image</div>,
+      cell: (info) => {
+        const product = info.row.original;
+        const firstImage =
+          product?.variants?.[0]?.images?.[0]?.imageUrl || noImage;
+        return (
           <img
             src={firstImage}
-            alt={product?.name}
-            className="w-full h-full object-cover"
+            alt={product.name}
+            className="w-12 h-12 object-cover rounded border"
             onError={(e) => {
               e.currentTarget.onerror = null;
               e.currentTarget.src = noImage;
             }}
           />
-        </div>
-      </div>
-
-      <div className="py-2 pr-2 font-[monospace]">{product?.name}</div>
-      <div className="py-2 pr-2 font-[monospace]">
-        <div className="flex gap-2">
-          {colors.length
-            ? colors.map((color) => (
+        );
+      },
+    }),
+    columnHelper.accessor("name", {
+      header: <div className="font-[monospace]">Name</div>,
+      cell: (info) => (
+        <span className="font-[monospace]">{info.getValue()}</span>
+      ),
+    }),
+    columnHelper.accessor("colors", {
+      header: <div className="font-[monospace]">Colors</div>,
+      cell: (info) => {
+        const colors =
+          info.row.original?.variants?.map((v) => v.color).filter(Boolean) ||
+          [];
+        return (
+          <div className="flex gap-2">
+            {colors.length ? (
+              colors.map((c) => (
                 <div
-                  key={color}
-                  title={color}
+                  key={c}
+                  title={c}
                   className="w-5 h-5 rounded-full"
-                  style={{ backgroundColor: color }}
+                  style={{ backgroundColor: c }}
                 />
               ))
-            : "-"}
-        </div>
-      </div>
-      <div className="py-2 pr-2 font-[monospace]">
-        {uniqueSizes.length ? uniqueSizes.join(", ") : "-"}
-      </div>
-      <div className="py-2 pr-2 font-[monospace]">${priceNum.toFixed(2)}</div>
-      <div className="py-2 pr-2 font-[monospace]">
-        {product?.onSale ? "Yes" : "No"}
-      </div>
-      <div className="py-2 pr-2 font-[monospace]">
-        {product?.onSale ? `$${finalPrice}` : "-"}
-      </div>
-      <div className="py-2 pr-2 font-[monospace]">
-        {product?.isPublic ? "Public" : "Private"}
-      </div>
-      <div className="py-2 pr-2">
-        <div className="flex justify-end gap-2">
-          <button
-            className="bg-[#D9D9D9] text-black cursor-pointer p-2.5 rounded-full hover:bg-gray-300 transition"
-            onClick={() => onEdit && onEdit(product)}
-          >
-            <MdEdit size={18} />
-          </button>
-          <button
-            className="bg-black text-white cursor-pointer p-2.5 rounded-full hover:bg-gray-800 transition"
-            onClick={() => onDelete && onDelete(product?.id)}
-          >
-            <MdDelete size={18} />
-          </button>
-        </div>
+            ) : (
+              <span>-</span>
+            )}
+          </div>
+        );
+      },
+    }),
+    columnHelper.accessor("sizes", {
+      header: <div className="font-[monospace]">Sizes</div>,
+      cell: (info) => {
+        const allSizes =
+          info.row.original?.variants?.flatMap((v) =>
+            v.sizes?.map((s) => s.size)
+          ) || [];
+        const uniqueSizes = [...new Set(allSizes)];
+        return (
+          <span className="font-[monospace]">
+            {uniqueSizes.length ? uniqueSizes.join(", ") : "-"}
+          </span>
+        );
+      },
+    }),
+    columnHelper.accessor("collectionType", {
+      header: <div className="font-[monospace]">Collection</div>,
+      cell: (info) => {
+        return (
+          <span className="font-[monospace] capitalize">{info.getValue()}</span>
+        );
+      },
+    }),
+    columnHelper.accessor("gender", {
+      header: <div className="font-[monospace]">Gender</div>,
+      cell: (info) => {
+        return (
+          <span className="font-[monospace] capitalize">{info.getValue()}</span>
+        );
+      },
+    }),
+    columnHelper.accessor("isPublic", {
+      header: <div className="font-[monospace]">Visibility</div>,
+      cell: (info) => {
+        return (
+          <span className="font-[monospace]">
+            {info.getValue() ? "Public" : "Private"}
+          </span>
+        );
+      },
+    }),
+    columnHelper.accessor("onSale", {
+      header: <div className="font-[monospace]">On Sale</div>,
+      cell: (info) => {
+        return (
+          <span className="font-[monospace]">
+            {info.getValue() ? "Yes" : "No"}
+          </span>
+        );
+      },
+    }),
+    columnHelper.accessor("discountPercent", {
+      header: <div className="font-[monospace]">Discount</div>,
+      cell: (info) => {
+        return (
+          <span className="font-[monospace]">
+            {info.row.original.discountPercent}%
+          </span>
+        );
+      },
+    }),
+    columnHelper.accessor("price", {
+      header: <div className="font-[monospace]">Price</div>,
+      cell: (info) => {
+        const finalPrice = info.row.original.discountPercent
+          ? info.row.original.price -
+            (info.row.original.price * info.row.original.discountPercent) / 100
+          : info.row.original.price;
+        return (
+          <div className="font-[monospace] flex gap-1">
+            {info.row.original.discountPercent && (
+              <span className="line-through text-[12px]">
+                {Number(info.getValue()).toFixed(2)}
+              </span>
+            )}
+            <span>{Number(finalPrice).toFixed(2)}</span>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: "actions",
+      header: <div className="font-[monospace]">Actions</div>,
+      cell: (info) => {
+        const product = info.row.original;
+        return (
+          <div className="flex justify-center gap-2">
+            <button
+              className="bg-gray-300 text-black p-2 rounded-full hover:bg-gray-400 transition"
+              onClick={() => handleEdit(product)}
+            >
+              <MdEdit size={18} />
+            </button>
+            <button
+              className="bg-black text-white p-2 rounded-full hover:bg-gray-800 transition"
+              onClick={() => handleDelete(product.id)}
+            >
+              <MdDelete size={18} />
+            </button>
+          </div>
+        );
+      },
+    }),
+  ];
+
+  const table = useReactTable({
+    data: products,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  return (
+    <div className="collection w-full pr-[52px]">
+      <div className="mt-10 overflow-x-auto bg-white rounded-lg shadow">
+        <table className="min-w-full text-sm text-left">
+          <thead className="bg-gray-100 border-b text-gray-700 uppercase text-xs">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} className="px-4 py-3 font-medium">
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map((row) => (
+              <tr
+                key={row.id}
+                className="border-b hover:bg-gray-50 transition-colors"
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="px-4 py-3">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
