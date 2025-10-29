@@ -1,8 +1,15 @@
 import React from "react";
 import "../../assets/css/style.scss";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { FaPlus } from "react-icons/fa6";
 
 export default function Navbar() {
+  const navigate = useNavigate();
+  const handleNavigate = (e)=>{
+    e.preventDefault();
+    navigate("/product_action")
+
+  }
   return (
     <div className="navbar pr-[52px]">
       <div className="flex justify-between items-center">
@@ -26,10 +33,6 @@ export default function Navbar() {
                 </div>
               </div>
             </li>
-
-            <li>
-              <Link to="/products?sort=new">New</Link>
-            </li>
           </ul>
         </div>
         <div className="logo">
@@ -37,6 +40,9 @@ export default function Navbar() {
         </div>
         <div className="option-r flex justify-between items-center">
           <ul className="user-option">
+            <li className="w-[50px] h-[50px] rounded-full bg-[#D1D5DB] text-black flex justify-center items-center cursor-pointer" onClick={(e)=>handleNavigate(e)}>
+              <FaPlus className="w-[20px] h-[20px]" />
+            </li>
             <li className="user">
               <span></span>
             </li>

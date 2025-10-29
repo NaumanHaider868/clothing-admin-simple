@@ -67,9 +67,8 @@ const Login = () => {
                 type={field === "email" ? "email" : "text"}
                 placeholder={errors[field] ? errors[field].message : field}
                 {...register(field)}
-                className={`w-full py-4 pl-4 pr-7 rounded-[10px] outline-none bg-transparent input-b ${
-                  errors[field] ? "border-red-500" : ""
-                }`}
+                className={`w-full py-4 pl-4 pr-7 rounded-[10px] outline-none bg-transparent input-b ${errors[field] ? "border-red-500" : ""
+                  }`}
               />
               {errors[field] && (
                 <p className="text-red-500 text-[14px] mt-1 ml-4 text-left">
@@ -110,4 +109,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export { Login };

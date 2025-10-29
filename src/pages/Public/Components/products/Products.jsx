@@ -1,8 +1,8 @@
 import React from 'react';
-import Img1 from '../../../assets/img/men11.png';
-import Img2 from '../../../assets/img/men12.png';
-import Img3 from '../../../assets/img/men13.png';
-import Filter from './Filter';
+import Img1 from '../../../../assets/img/men11.png';
+import Img2 from '../../../../assets/img/men12.png';
+import Img3 from '../../../../assets/img/men13.png';
+import Filter from '../Filter';
 
 const categories = ["SHIRTS", "POLO SHIRTS", "BEST SELLERS", "T-SHIRTS", "JEANS", "SHORTS", "JACKETS"];
 const products = [
@@ -11,7 +11,7 @@ const products = [
     { img: Img3, type: "Cotton T Shirt", name: "Full Sleeve Zipper", price: "$ 99" },
 ];
 
-export default function Products() {
+function Products() {
     return (
         <div className="products flex pt-[65px] pr-[52px]">
             <div>
@@ -57,3 +57,4 @@ export default function Products() {
         </div>
     );
 }
+export { Products };

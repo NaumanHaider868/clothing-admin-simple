@@ -1,10 +1,10 @@
 import React from 'react'
 import { GoPlus } from 'react-icons/go';
-import Cloth4 from '../../../assets/img/cloth4.png';
-import Cloth6 from '../../../assets/img/cloth6.png';
-import Cloth2 from '../../../assets/img/cloth2.png';
+import Cloth4 from '../../../../assets/img/cloth4.png';
+import Cloth6 from '../../../../assets/img/cloth6.png';
+import Cloth2 from '../../../../assets/img/cloth2.png';
 
-export default function YearCollection() {
+export function YearCollection() {
     const products = [
         { id: 1, img: Cloth6, type: "Crewneck T-Shirt", name: "Full Sleeve Zipper", price: "$89" },
         { id: 2, img: Cloth2, type: "V-Neck T-Shirt", name: "Embroidered Seersucker Shirt", price: "$99" },

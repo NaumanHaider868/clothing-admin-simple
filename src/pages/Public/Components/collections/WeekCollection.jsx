@@ -4,17 +4,17 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import { Navigation } from 'swiper/modules';
 
-import Cloth4 from '../../../assets/img/cloth4.png';
-import Cloth5 from '../../../assets/img/cloth5.png';
-import Cloth6 from '../../../assets/img/cloth6.png';
-import Cloth7 from '../../../assets/img/cloth7.png';
-import Cloth8 from '../../../assets/img/cloth8.png';
-import Cloth2 from '../../../assets/img/cloth2.png';
+import Cloth4 from '../../../../assets/img/cloth4.png';
+import Cloth5 from '../../../../assets/img/cloth5.png';
+import Cloth6 from '../../../../assets/img/cloth6.png';
+import Cloth7 from '../../../../assets/img/cloth7.png';
+import Cloth8 from '../../../../assets/img/cloth8.png';
+import Cloth2 from '../../../../assets/img/cloth2.png';
 
 import { GoPlus } from 'react-icons/go';
 import { IoIosArrowBack, IoIosArrowForward } from 'react-icons/io';
 
-export default function WeekCollection() {
+export function WeekCollection() {
     const [isBeginning, setIsBeginning] = useState(true);
     const [isEnd, setIsEnd] = useState(false);
 
