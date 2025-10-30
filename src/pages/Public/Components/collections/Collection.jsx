@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -6,13 +6,17 @@ import {
 } from "@tanstack/react-table";
 import "../../../../assets/css/style.scss";
 import { api } from "../../../../utlis/customAPI";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import TableSkeleton from "../../../../utlis/shimmar/table";
 import { productColumns } from "../../columns/mainColumns";
 import ErrorHandler from "../../../../utlis/common";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 
 export const Collection = () => {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["products"],
     queryFn: async () => {
@@ -20,6 +24,28 @@ export const Collection = () => {
       return response.data;
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (productId) => {
+      await api.delete(`/product/delete/${productId}`);
+      return productId;
+    },
+    onSuccess: (deletedId) => {
+      queryClient.setQueryData(["products"], (oldData) => {
+        if (!oldData?.data) return oldData;
+
+        return {
+          ...oldData,
+          data: oldData.data.filter((product) => product.id !== deletedId),
+        };
+      });
+      toast.success("Product deleted successfully");
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || "Failed to delete product");
+    },
+  });
+
   const products = Array.isArray(data?.data) ? data.data : [];
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -31,15 +57,29 @@ export const Collection = () => {
     currentPage * itemsPerPage
   );
 
-  const handleEdit = (product) => console.log("Edit:", product);
-  const handleDelete = (id) => console.log("Delete:", id);
+  const handleEdit = (id) => {
+    navigate(`/product_action`, { state: { id } });
+  };
+
+  const handleDelete = (id) => {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const columns = productColumns(handleEdit, handleDelete);
+
   const table = useReactTable({
     data: paginatedProducts,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   if (isLoading) {
     return (
@@ -85,8 +125,13 @@ export const Collection = () => {
                   className="border-b hover:bg-gray-50 transition-colors"
                 >
                   {row.getVisibleCells().map((cell) => {
-                    const isActionCell = String(cell.column.id).toLowerCase().includes("action");
-                    const cellContent = flexRender(cell.column.columnDef.cell, cell.getContext());
+                    const isActionCell = String(cell.column.id)
+                      .toLowerCase()
+                      .includes("action");
+                    const cellContent = flexRender(
+                      cell.column.columnDef.cell,
+                      cell.getContext()
+                    );
 
                     return (
                       <td key={cell.id} className="px-4 py-3">
@@ -104,48 +149,47 @@ export const Collection = () => {
                     );
                   })}
                 </tr>
-              )
+              );
             })}
           </tbody>
         </table>
       </div>
 
-      {
-        products.length > 1 && (
-          <div className="flex justify-end items-center gap-2 mt-4">
-            <button
-              className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-            >
-              Prev
-            </button>
+      {products.length > 0 && (
+        <div className="flex justify-end items-center gap-2 mt-4">
+          <button
+            className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+          >
+            Prev
+          </button>
 
-            {[...Array(totalPages)].map((_, index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentPage(index + 1)}
-                className={`px-3 py-1 rounded ${currentPage === index + 1
+          {[...Array(totalPages)].map((_, index) => (
+            <button
+              key={index}
+              onClick={() => setCurrentPage(index + 1)}
+              className={`px-3 py-1 rounded ${
+                currentPage === index + 1
                   ? "bg-black text-white"
                   : "bg-gray-200 hover:bg-gray-300"
-                  }`}
-              >
-                {index + 1}
-              </button>
-            ))}
-
-            <button
-              className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-              onClick={() =>
-                setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-              }
-              disabled={currentPage === totalPages}
+              }`}
             >
-              Next
+              {index + 1}
             </button>
-          </div>
-        )
-      }
-    </div >
+          ))}
+
+          <button
+            className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+            onClick={() =>
+              setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+            }
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
   );
-}
+};

@@ -1,15 +1,20 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { toast } from "react-toastify";
 import { v4 as uuidv4 } from "uuid";
 import Loader from "react-js-loader";
-import { useParams } from "react-router-dom";
+import { useParams,useLocation } from "react-router-dom";
+import { api } from "../../../../utlis/customAPI";
 
-// Constants for better maintainability
 const MAX_DISCOUNT = 80;
 const MIN_PRICE = 10;
 const MAX_SIZES_PER_COLOR = 5;
 
-// Initial form state
 const initialFormData = {
   name: "",
   description: "",
@@ -29,14 +34,100 @@ const initialFormData = {
   numberOfProducts: 0,
 };
 
-// Validation utilities
+const productAPI = {
+  addProduct: async (productData) => {
+    const response = await api.post("/product/create", productData);
+    return response.data;
+  },
+
+  updateProduct: async (id, productData) => {
+    const response = await api.patch(`/product/edit/${id}`, productData);
+    return response.data;
+  },
+
+  getProduct: async (id) => {
+    const response = await api.get(`/product/fetch/${id}`);
+
+    return response.data;
+  },
+};
+
 const isValidHexColor = (color) => /^#([A-Fa-f0-9]{6})$/.test(color);
-const normalizeHexColor = (color) => color.startsWith("#") ? color : `#${color}`;
+const normalizeHexColor = (color) =>
+  color.startsWith("#") ? color : `#${color}`;
+
+const transformAPIDataToFormData = (apiData) => {
+  const images = [];
+  const colors = [];
+  const colorSizes = {};
+
+  if (apiData.variants && Array.isArray(apiData.variants)) {
+    apiData.variants.forEach((variant) => {
+      const color = variant.color;
+      colors.push(color);
+
+      if (variant.images && Array.isArray(variant.images)) {
+        variant.images.forEach((imageUrl) => {
+          images.push({
+            url: imageUrl,
+            color: color,
+            isExisting: true,
+          });
+        });
+      }
+
+      if (variant.sizes && Array.isArray(variant.sizes)) {
+        colorSizes[color] = variant.sizes.map((size) => ({
+          id: uuidv4(),
+          value: size.size,
+          quantity: size.stockCount,
+        }));
+      }
+    });
+  }
+
+  const genderMap = {
+    men: "male",
+    women: "female",
+    unisex: "unisex",
+  };
+
+  const groupMap = {
+    kids: "kids",
+    adults: "adults",
+    boys: "kids",
+    girls: "kids",
+  };
+
+  return {
+    formData: {
+      name: apiData.name || "",
+      description: apiData.description || "",
+      price: apiData.price || 0,
+      isOnSale: apiData.onSale || false,
+      discount: apiData.discountPercent || 0,
+      inStock: apiData.inStock !== undefined ? apiData.inStock : true,
+      soldOut: apiData.soldOut || false,
+      images: images,
+      colors: colors,
+      collection: apiData.collection || "",
+      modelDetail: apiData.modelDetail || "",
+      showToCustomer: apiData.isPublic || false,
+      gender: genderMap[apiData.gender] || apiData.gender || "",
+      group: groupMap[apiData.collectionType] || apiData.collectionType || "",
+      season: apiData.type || "",
+      numberOfProducts: apiData.numberOfProducts || 0,
+    },
+    colorSizes: colorSizes,
+  };
+};
 
 const AddProduct = () => {
-  const { id } = useParams();
+  const location =  useLocation();
+  const id = location?.state?.id;
   const [formData, setFormData] = useState(initialFormData);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetching, setIsFetching] = useState(!!id);
   const [tempFiles, setTempFiles] = useState([]);
   const [color, setColor] = useState("#000000");
   const [colorSizes, setColorSizes] = useState({});
@@ -45,19 +136,53 @@ const AddProduct = () => {
   const [currentSizeInput, setCurrentSizeInput] = useState({
     color: null,
     size: "",
-    quantity: 1
+    quantity: 1,
   });
   const [editingSizeInfo, setEditingSizeInfo] = useState(null);
   const [editingImage, setEditingImage] = useState(null);
+  const fileInputRef = useRef(null);
 
-  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    const fetchProduct = async () => {
+      if (!id) return;
+
+      try {
+        setIsFetching(true);
+        const product = await productAPI.getProduct(id);
+
+        const {
+          formData: transformedFormData,
+          colorSizes: transformedColorSizes,
+        } = transformAPIDataToFormData(product);
+
+        setFormData(transformedFormData);
+        setColorSizes(transformedColorSizes);
+
+        const existingPreviewUrls = transformedFormData.images
+          .filter((img) => img.url)
+          .map((img) => img.url);
+        setPreviewUrls(existingPreviewUrls);
+      } catch (error) {
+        console.error("Error fetching product:", error);
+        toast.error("Failed to load product data");
+      } finally {
+        setIsFetching(false);
+      }
+    };
+
+    fetchProduct();
+  }, [id]);
+
   useEffect(() => {
     return () => {
-      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+      previewUrls.forEach((url) => {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
     };
   }, [previewUrls]);
 
-  // Color validation handler
   const handleColorChange = useCallback((e) => {
     const newColor = e.target.value;
     setColor(newColor);
@@ -68,7 +193,7 @@ const AddProduct = () => {
     }
 
     const normalizedColor = normalizeHexColor(newColor);
-    
+
     if (!isValidHexColor(normalizedColor)) {
       setColorError("Please enter a valid hex color (e.g., #000000)");
     } else {
@@ -76,13 +201,16 @@ const AddProduct = () => {
     }
   }, []);
 
-  // File upload handler
   const handleFileUpload = useCallback((event) => {
     const files = Array.from(event.target.files);
     setTempFiles(files);
+
+    // Clear the input if no files selected (when user cancels)
+    if (files.length === 0 && fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, []);
 
-  // Add images with color association
   const handleAddImages = useCallback(() => {
     if (tempFiles.length === 0 || !color) {
       toast.error("Please select images and a color.");
@@ -103,109 +231,140 @@ const AddProduct = () => {
 
     const newUrls = tempFiles.map((file) => URL.createObjectURL(file));
 
-    setFormData(prevData => {
+    setFormData((prevData) => {
       const isNewColor = !prevData.colors.includes(normalizedColor);
-      
+
       return {
         ...prevData,
-        colors: isNewColor ? [...prevData.colors, normalizedColor] : prevData.colors,
+        colors: isNewColor
+          ? [...prevData.colors, normalizedColor]
+          : prevData.colors,
         images: [...prevData.images, ...newImages],
       };
     });
 
     // Initialize sizes for new color
     if (!colorSizes[normalizedColor]) {
-      setColorSizes(prev => ({
+      setColorSizes((prev) => ({
         ...prev,
         [normalizedColor]: [],
       }));
     }
 
-    setPreviewUrls(prev => [...prev, ...newUrls]);
+    setPreviewUrls((prev) => [...prev, ...newUrls]);
     setTempFiles([]);
     setColor("#000000");
+
+    // Clear the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, [tempFiles, color, colorSizes]);
 
-  // Remove image and cleanup
-  const handleRemoveImage = useCallback((indexToRemove, imageColor) => {
-    setFormData(prevData => {
-      const newImages = prevData.images.filter((_, index) => index !== indexToRemove);
-      const remainingColorImages = newImages.filter(img => img.color === imageColor);
-      
-      // Remove color if no images left
-      const shouldRemoveColor = remainingColorImages.length === 0;
-      
-      return {
-        ...prevData,
-        images: newImages,
-        colors: shouldRemoveColor 
-          ? prevData.colors.filter(c => c !== imageColor) 
-          : prevData.colors,
-      };
-    });
+  const handleRemoveImage = useCallback(
+    (indexToRemove, imageColor) => {
+      const imageToRemove = formData.images[indexToRemove];
 
-    // Remove sizes if color is being removed
-    if (colorSizes[imageColor]) {
-      const imageCount = formData.images.filter(img => img.color === imageColor).length;
-      if (imageCount <= 1) {
-        setColorSizes(prev => {
-          const newColorSizes = { ...prev };
-          delete newColorSizes[imageColor];
-          return newColorSizes;
-        });
-      }
-    }
-  }, [colorSizes, formData.images]);
-
-  // Size management
-  const handleSizeInputChange = useCallback((e, color, field) => {
-    setCurrentSizeInput({
-      ...currentSizeInput,
-      color: color,
-      [field]: field === 'quantity' ? parseInt(e.target.value) || 0 : e.target.value
-    });
-  }, [currentSizeInput]);
-
-  const handleAddSize = useCallback((color) => {
-    const { size, quantity } = currentSizeInput;
-
-    if (!size?.trim()) {
-      toast.error("Please enter a size");
-      return;
-    }
-
-    setColorSizes((prev) => {
-      const currentSizes = prev[color] || [];
-
-      if (currentSizes.length >= MAX_SIZES_PER_COLOR) {
-        toast.error(`Maximum ${MAX_SIZES_PER_COLOR} sizes allowed per color`);
-        return prev;
+      // Revoke object URL if it's a blob URL
+      if (imageToRemove.url && imageToRemove.url.startsWith("blob:")) {
+        URL.revokeObjectURL(imageToRemove.url);
       }
 
-      const isDuplicate = currentSizes.some((s) => s.value === size.trim());
-      if (isDuplicate) {
-        toast.error("This size already exists");
-        return prev;
+      setFormData((prevData) => {
+        const newImages = prevData.images.filter(
+          (_, index) => index !== indexToRemove
+        );
+        const remainingColorImages = newImages.filter(
+          (img) => img.color === imageColor
+        );
+
+        // Remove color if no images left
+        const shouldRemoveColor = remainingColorImages.length === 0;
+
+        return {
+          ...prevData,
+          images: newImages,
+          colors: shouldRemoveColor
+            ? prevData.colors.filter((c) => c !== imageColor)
+            : prevData.colors,
+        };
+      });
+
+      // Remove from preview URLs
+      setPreviewUrls((prev) => prev.filter((url) => url !== imageToRemove.url));
+
+      // Remove sizes if color is being removed
+      if (colorSizes[imageColor]) {
+        const imageCount = formData.images.filter(
+          (img) => img.color === imageColor
+        ).length;
+        if (imageCount <= 1) {
+          setColorSizes((prev) => {
+            const newColorSizes = { ...prev };
+            delete newColorSizes[imageColor];
+            return newColorSizes;
+          });
+        }
+      }
+    },
+    [colorSizes, formData.images]
+  );
+
+  const handleSizeInputChange = useCallback(
+    (e, color, field) => {
+      setCurrentSizeInput({
+        ...currentSizeInput,
+        color: color,
+        [field]:
+          field === "quantity" ? parseInt(e.target.value) || 0 : e.target.value,
+      });
+    },
+    [currentSizeInput]
+  );
+
+  const handleAddSize = useCallback(
+    (color) => {
+      const { size, quantity } = currentSizeInput;
+
+      if (!size?.trim()) {
+        toast.error("Please enter a size");
+        return;
       }
 
-      const newSize = {
-        id: uuidv4(),
-        value: size.trim(),
-        quantity: Math.max(1, quantity || 1)
-      };
+      setColorSizes((prev) => {
+        const currentSizes = prev[color] || [];
 
-      return {
-        ...prev,
-        [color]: [...currentSizes, newSize],
-      };
-    });
+        if (currentSizes.length >= MAX_SIZES_PER_COLOR) {
+          toast.error(`Maximum ${MAX_SIZES_PER_COLOR} sizes allowed per color`);
+          return prev;
+        }
 
-    setCurrentSizeInput({
-      color: null,
-      size: "",
-      quantity: 1
-    });
-  }, [currentSizeInput]);
+        const isDuplicate = currentSizes.some((s) => s.value === size.trim());
+        if (isDuplicate) {
+          toast.error("This size already exists");
+          return prev;
+        }
+
+        const newSize = {
+          id: uuidv4(),
+          value: size.trim(),
+          quantity: Math.max(1, quantity || 1),
+        };
+
+        return {
+          ...prev,
+          [color]: [...currentSizes, newSize],
+        };
+      });
+
+      setCurrentSizeInput({
+        color: null,
+        size: "",
+        quantity: 1,
+      });
+    },
+    [currentSizeInput]
+  );
 
   const handleRemoveSize = useCallback((color, sizeId) => {
     setColorSizes((prev) => ({
@@ -219,7 +378,7 @@ const AddProduct = () => {
       color: color,
       sizeId: sizeObj.id,
       currentValue: sizeObj.value,
-      currentQuantity: sizeObj.quantity
+      currentQuantity: sizeObj.quantity,
     });
   }, []);
 
@@ -250,7 +409,6 @@ const AddProduct = () => {
     setEditingSizeInfo(null);
   }, [editingSizeInfo]);
 
-  // Group images by color for API response
   const groupImagesByColor = useCallback((images, sizes) => {
     const colorDataMap = {};
 
@@ -262,12 +420,13 @@ const AddProduct = () => {
           color: color,
           images: [],
           sizes: [],
-          totalQuantity: 0
+          totalQuantity: 0,
         };
       }
-      
+
       if (url) {
-        colorDataMap[color].images.push(url);
+        // Push as object with imageUrl property
+        colorDataMap[color].images.push({ imageUrl: url });
       }
     });
 
@@ -278,26 +437,37 @@ const AddProduct = () => {
           color: color,
           images: [],
           sizes: [],
-          totalQuantity: 0
+          totalQuantity: 0,
         };
       }
 
       const sizeData = sizesArray.map((sizeObj) => ({
         size: sizeObj.value,
-        stockCount: sizeObj.quantity
+        stockCount: sizeObj.quantity,
       }));
 
       colorDataMap[color].sizes = sizeData;
       colorDataMap[color].totalQuantity = sizesArray.reduce(
-        (sum, sizeObj) => sum + sizeObj.quantity, 0
+        (sum, sizeObj) => sum + sizeObj.quantity,
+        0
       );
     });
 
     return Object.values(colorDataMap);
   }, []);
 
-  // Transform form data to match required API format
   const transformFormDataForAPI = useCallback((formData, colorGroups) => {
+    const genderMap = {
+      male: "men",
+      female: "women",
+      unisex: "unisex",
+    };
+
+    const groupMap = {
+      kids: "boys",
+      adults: "adults",
+    };
+
     return {
       name: formData.name,
       description: formData.description,
@@ -305,21 +475,20 @@ const AddProduct = () => {
       collection: formData.collection,
       modelDetail: formData.modelDetail,
       isPublic: formData.showToCustomer,
-      gender: formData.gender,
-      collectionType: formData.group,
+      gender: genderMap[formData.gender] || formData.gender,
+      collectionType: groupMap[formData.group] || formData.group,
       onSale: formData.isOnSale,
       discountPercent: formData.isOnSale ? Number(formData.discount) : 0,
       inStock: formData.inStock,
       type: formData.season,
-      variants: colorGroups.map(group => ({
+      variants: colorGroups.map((group) => ({
         color: group.color,
         images: group.images,
-        sizes: group.sizes
-      }))
+        sizes: group.sizes,
+      })),
     };
   }, []);
 
-  // Form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -338,45 +507,65 @@ const AddProduct = () => {
       return;
     }
 
+    if (!formData.gender) {
+      toast.error("Please select gender");
+      return;
+    }
+
+    if (!formData.group) {
+      toast.error("Please select group");
+      return;
+    }
+
     setIsLoading(true);
-    
+
     try {
       const colorGroups = groupImagesByColor(formData.images, colorSizes);
       const apiData = transformFormDataForAPI(formData, colorGroups);
 
-      console.log("Submitting product:", apiData);
+      console.log("Submitting product:", JSON.stringify(apiData, null, 2));
 
-      // TODO: Replace with actual API call
-      // const response = id 
-      //   ? await updateProduct(id, apiData)
-      //   : await addProduct(apiData);
-      
-      // toast.success(`Product ${id ? "updated" : "added"} successfully`);
+      let response;
+      if (id) {
+        response = await productAPI.updateProduct(id, apiData);
+        toast.success("Product updated successfully");
+      } else {
+        response = await productAPI.addProduct(apiData);
+        toast.success("Product added successfully");
+      }
 
-      // Reset form
-      setFormData(initialFormData);
-      setColorSizes({});
-      setPreviewUrls([]);
-      setCurrentSizeInput({ color: null, size: "", quantity: 1 });
+      console.log("API Response:", response);
 
+      // Reset form only for new products
+      if (!id) {
+        setFormData(initialFormData);
+        setColorSizes({});
+        setPreviewUrls([]);
+        setCurrentSizeInput({ color: null, size: "", quantity: 1 });
+
+        // Clear file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
     } catch (error) {
       console.error("Error submitting product:", error);
-      toast.error(`Error ${id ? "updating" : "adding"} product`);
+      toast.error(
+        `Error ${id ? "updating" : "adding"} product: ${error.message}`
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Generic input change handler
   const handleInputChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
   }, []);
 
-  // Image editing
   const handleEditImage = useCallback((image, imageColor) => {
     setEditingImage({
       originalImage: image,
@@ -394,6 +583,11 @@ const AddProduct = () => {
     const newFile = tempFiles[0];
     const newUrl = URL.createObjectURL(newFile);
 
+    // Revoke old URL if it's a blob URL
+    if (editingImage.originalImage.url.startsWith("blob:")) {
+      URL.revokeObjectURL(editingImage.originalImage.url);
+    }
+
     setFormData((prevData) => ({
       ...prevData,
       images: prevData.images.map((img) =>
@@ -409,28 +603,41 @@ const AddProduct = () => {
       )
     );
 
-    URL.revokeObjectURL(editingImage.originalImage.url);
     setTempFiles([]);
     setEditingImage(null);
+
+    // Clear the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, [tempFiles, editingImage]);
 
-  // Memoized grouped images for performance
-  const groupedImages = useMemo(() => 
-    formData.images.reduce((acc, curr) => {
-      if (!acc[curr.color]) acc[curr.color] = [];
-      acc[curr.color].push(curr);
-      return acc;
-    }, {}),
-  [formData.images]);
+  const groupedImages = useMemo(
+    () =>
+      formData.images.reduce((acc, curr) => {
+        if (!acc[curr.color]) acc[curr.color] = [];
+        acc[curr.color].push(curr);
+        return acc;
+      }, {}),
+    [formData.images]
+  );
+
+  if (isFetching) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 add-product mt-[35px] flex justify-center items-center h-64">
+        <Loader type="bubble-spin" bgColor="#000" size={50} />
+        <span className="ml-4">Loading product data...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-4 add-product mt-[35px]">
       <h2 className="text-2xl font-bold mb-6">
         {id ? "Edit Product" : "Add Product"}
       </h2>
-      
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Form fields remain the same as your original */}
+
+      <form onSubmit={handleSubmit} className="space-y-6 font-[monospace]">
         {/* Name */}
         <div>
           <label className="block font-medium">Name*</label>
@@ -441,7 +648,7 @@ const AddProduct = () => {
             placeholder="Enter product name"
             value={formData.name}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 border-b border-black bg-transparent focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
         </div>
 
@@ -453,7 +660,7 @@ const AddProduct = () => {
             placeholder="Enter product description"
             value={formData.description}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
         </div>
 
@@ -465,7 +672,7 @@ const AddProduct = () => {
             placeholder="Enter model detail"
             value={formData.modelDetail}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
         </div>
 
@@ -480,7 +687,7 @@ const AddProduct = () => {
             placeholder="Enter product price"
             value={formData.price}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
         </div>
 
@@ -508,7 +715,7 @@ const AddProduct = () => {
                 max={MAX_DISCOUNT}
                 value={formData.discount}
                 onChange={handleInputChange}
-                className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+                className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
               />
             </div>
           )}
@@ -522,7 +729,7 @@ const AddProduct = () => {
             required
             value={formData.season}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           >
             <option value="">Select Season</option>
             <option value="winter">Winter</option>
@@ -534,7 +741,9 @@ const AddProduct = () => {
 
         {/* Collection */}
         <div>
-          <label className="block font-medium">Collection* <small>(Shirts, Paints, Jackets, etc)</small></label>
+          <label className="block font-medium">
+            Collection* <small>(Shirts, Paints, Jackets, etc)</small>
+          </label>
           <input
             type="text"
             name="collection"
@@ -542,7 +751,7 @@ const AddProduct = () => {
             placeholder="Enter collection name"
             value={formData.collection}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
         </div>
 
@@ -554,7 +763,7 @@ const AddProduct = () => {
             required
             value={formData.gender}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           >
             <option value="">Select Gender</option>
             <option value="male">Male</option>
@@ -571,49 +780,59 @@ const AddProduct = () => {
             required
             value={formData.group}
             onChange={handleInputChange}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           >
             <option value="">Select Group</option>
-            <option value="kids">Kids</option>
+            <option value="kids">Kids/Boys</option>
             <option value="adults">Adults</option>
+            <option value="boys">Boys</option>
+            <option value="girls">Girls</option>
           </select>
         </div>
 
-        {/* Image Upload Section */}
         <div className="flex justify-center text-[30px]">
           <span>Select Images For Product</span>
         </div>
-        
+
         <div>
           <label className="block font-medium">Images</label>
           <input
+            ref={fileInputRef}
             type="file"
             multiple
             accept="image/*"
             onChange={handleFileUpload}
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+            className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           />
+          {tempFiles.length > 0 && (
+            <p className="text-sm text-gray-600 mt-1">
+              {tempFiles.length} file(s) selected
+            </p>
+          )}
         </div>
 
-        {/* Color Input */}
         <div className="space-y-2">
-          <label className="block font-medium">Color (Hex code)</label>
-          <input
-            type="text"
-            value={color}
-            onChange={handleColorChange}
-            placeholder="#000000"
-            className="w-full py-4 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
-          />
-          {colorError && (
-            <p className="text-red-500 text-sm mt-1">{colorError}</p>
-          )}
-          {isValidHexColor(normalizeHexColor(color)) && (
-            <div
-              className="w-8 h-8 rounded mt-2"
-              style={{ backgroundColor: color, border: "1px solid #ccc" }}
+          <label className="block font-medium">Select Color</label>
+          <div className="flex items-center gap-4">
+            <input
+              type="color"
+              value={color}
+              onChange={handleColorChange}
+              className="h-10 w-16 cursor-pointer p-0 border border-gray-300 rounded"
             />
-          )}
+            <div className="flex-1">
+              {colorError && (
+                <p className="text-red-500 text-sm mt-1">{colorError}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-sm text-gray-600">Preview:</span>
+            <div
+              className="w-8 h-8 rounded border border-gray-300"
+              style={{ backgroundColor: color }}
+            />
+          </div>
         </div>
 
         <button
@@ -624,12 +843,11 @@ const AddProduct = () => {
           Add Images
         </button>
 
-        {/* Color Variants Section */}
         <div>
           <h3 className="text-xl font-bold mt-6 mb-4">
             Product Variants by Color
           </h3>
-          
+
           {Object.entries(groupedImages).map(([imageColor, images]) => (
             <ColorVariantSection
               key={imageColor}
@@ -650,7 +868,6 @@ const AddProduct = () => {
           ))}
         </div>
 
-        {/* Image Replacement Modal */}
         {editingImage && (
           <ImageReplacementModal
             editingImage={editingImage}
@@ -661,7 +878,6 @@ const AddProduct = () => {
           />
         )}
 
-        {/* Submit Button */}
         <div className="flex justify-center mt-6">
           <button
             type="submit"
@@ -671,7 +887,7 @@ const AddProduct = () => {
             {isLoading ? (
               <Loader type="bubble-spin" bgColor="#000" size={30} />
             ) : (
-              "Submit Product"
+              `${id ? "Update" : "Submit"} Product`
             )}
           </button>
         </div>
@@ -680,7 +896,6 @@ const AddProduct = () => {
   );
 };
 
-// Extracted component for color variant section
 const ColorVariantSection = ({
   color,
   images,
@@ -707,24 +922,25 @@ const ColorVariantSection = ({
       </span>
     </div>
 
-    {/* Size Management */}
     <div className="mb-4">
       <label className="block font-medium">Sizes for {color}</label>
       <div className="flex gap-2">
         <input
           type="text"
           value={currentSizeInput.color === color ? currentSizeInput.size : ""}
-          onChange={(e) => onSizeInputChange(e, color, 'size')}
+          onChange={(e) => onSizeInputChange(e, color, "size")}
           placeholder="Enter size (e.g., S, M, L)"
-          className="w-1/3 py-2 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+          className="w-1/3 py-2 pl-4 pr-7 rounded-lg bg-transparent"
         />
         <input
           type="number"
           min="1"
-          value={currentSizeInput.color === color ? currentSizeInput.quantity : 1}
-          onChange={(e) => onSizeInputChange(e, color, 'quantity')}
+          value={
+            currentSizeInput.color === color ? currentSizeInput.quantity : 1
+          }
+          onChange={(e) => onSizeInputChange(e, color, "quantity")}
           placeholder="Qty"
-          className="w-1/4 py-2 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent"
+          className="w-1/4 py-2 pl-4 pr-7 rounded-lg bg-transparent"
         />
         <button
           type="button"
@@ -735,7 +951,6 @@ const ColorVariantSection = ({
         </button>
       </div>
 
-      {/* Size display */}
       <div className="flex flex-wrap gap-2 mt-2">
         {sizes.map((sizeObj) => (
           <SizeChip
@@ -752,7 +967,6 @@ const ColorVariantSection = ({
       </div>
     </div>
 
-    {/* Images display */}
     <div className="flex flex-wrap gap-4">
       {images.map((image, index) => (
         <ImageThumbnail
@@ -768,7 +982,6 @@ const ColorVariantSection = ({
   </div>
 );
 
-// Extracted component for size chip
 const SizeChip = ({
   sizeObj,
   color,
@@ -778,7 +991,8 @@ const SizeChip = ({
   onCancel,
   onRemove,
 }) => {
-  const isEditing = editingSizeInfo?.color === color && editingSizeInfo?.sizeId === sizeObj.id;
+  const isEditing =
+    editingSizeInfo?.color === color && editingSizeInfo?.sizeId === sizeObj.id;
 
   return (
     <div className="flex items-center gap-1 bg-black text-white px-2 py-1 rounded">
@@ -787,14 +1001,21 @@ const SizeChip = ({
           <input
             type="text"
             value={editingSizeInfo.currentValue}
-            onChange={(e) => onEdit(color, { ...sizeObj, value: e.target.value })}
+            onChange={(e) =>
+              onEdit(color, { ...sizeObj, value: e.target.value })
+            }
             className="text-black px-1 mr-1 rounded"
           />
           <input
             type="number"
             min="1"
             value={editingSizeInfo.currentQuantity}
-            onChange={(e) => onEdit(color, { ...sizeObj, quantity: parseInt(e.target.value) || 0 })}
+            onChange={(e) =>
+              onEdit(color, {
+                ...sizeObj,
+                quantity: parseInt(e.target.value) || 0,
+              })
+            }
             className="text-black px-1 mr-1 rounded w-12"
           />
           <button
@@ -836,7 +1057,6 @@ const SizeChip = ({
   );
 };
 
-// Extracted component for image thumbnail
 const ImageThumbnail = ({ image, color, index, onEdit, onRemove }) => (
   <div className="relative">
     <img
@@ -864,9 +1084,15 @@ const ImageThumbnail = ({ image, color, index, onEdit, onRemove }) => (
   </div>
 );
 
-// Extracted component for image replacement modal
-const ImageReplacementModal = ({ editingImage, tempFiles, onFileChange, onReplace, onCancel }) => {
-  const selectedReplacementImage = tempFiles.length > 0 ? URL.createObjectURL(tempFiles[0]) : null;
+const ImageReplacementModal = ({
+  editingImage,
+  tempFiles,
+  onFileChange,
+  onReplace,
+  onCancel,
+}) => {
+  const selectedReplacementImage =
+    tempFiles.length > 0 ? URL.createObjectURL(tempFiles[0]) : null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -886,10 +1112,16 @@ const ImageReplacementModal = ({ editingImage, tempFiles, onFileChange, onReplac
             <img
               src={selectedReplacementImage || ""}
               alt="New"
-              className={`max-w-full h-48 object-cover rounded ${!selectedReplacementImage ? "border-2 border-dashed border-gray-300" : ""}`}
+              className={`max-w-full h-48 object-cover rounded ${
+                !selectedReplacementImage
+                  ? "border-2 border-dashed border-gray-300"
+                  : ""
+              }`}
             />
             {!selectedReplacementImage && (
-              <p className="text-center text-gray-500 mt-2">No image selected</p>
+              <p className="text-center text-gray-500 mt-2">
+                No image selected
+              </p>
             )}
           </div>
         </div>
@@ -898,17 +1130,18 @@ const ImageReplacementModal = ({ editingImage, tempFiles, onFileChange, onReplac
             type="file"
             accept="image/*"
             onChange={onFileChange}
-            className="w-full py-2 pl-4 pr-7 custom-border rounded-lg outline-none bg-transparent mb-4"
+            className="w-full py-2 pl-4 pr-7 rounded-lg bg-transparent mb-4"
           />
         </div>
         <div className="flex justify-between">
           <button
             onClick={onReplace}
             disabled={tempFiles.length === 0}
-            className={`py-2 px-4 rounded ${tempFiles.length > 0
-              ? "bg-blue-500 text-white hover:bg-blue-600"
-              : "bg-gray-300 text-gray-500 cursor-not-allowed"
-              }`}
+            className={`py-2 px-4 rounded ${
+              tempFiles.length > 0
+                ? "bg-blue-500 text-white hover:bg-blue-600"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
           >
             Replace Image
           </button>
