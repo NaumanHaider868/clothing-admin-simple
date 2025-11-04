@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -57,17 +57,24 @@ export const Collection = () => {
     currentPage * itemsPerPage
   );
 
-  const handleEdit = (id) => {
+  // Use useCallback to prevent unnecessary recreations
+  const handleEdit = useCallback((id) => {
+    console.log(id);
     navigate(`/product_action`, { state: { id } });
-  };
+  }, [navigate]);
 
-  const handleDelete = (id) => {
+  // Fix: Remove deleteMutation from dependencies and use the stable mutate function
+  const handleDelete = useCallback((id) => {
     if (window.confirm("Are you sure you want to delete this product?")) {
       deleteMutation.mutate(id);
     }
-  };
+  }, []); // Remove deleteMutation from dependencies
 
-  const columns = productColumns(handleEdit, handleDelete);
+  // Use useMemo to recreate columns only when handlers change
+  const columns = useMemo(() => 
+    productColumns(handleEdit, handleDelete),
+    [handleDelete, handleEdit]
+  );
 
   const table = useReactTable({
     data: paginatedProducts,

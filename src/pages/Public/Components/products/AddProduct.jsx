@@ -8,8 +8,9 @@ import React, {
 import { toast } from "react-toastify";
 import { v4 as uuidv4 } from "uuid";
 import Loader from "react-js-loader";
-import { useParams,useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../../../utlis/customAPI";
+import { useQueryClient } from "@tanstack/react-query";
 
 const MAX_DISCOUNT = 80;
 const MIN_PRICE = 10;
@@ -47,7 +48,6 @@ const productAPI = {
 
   getProduct: async (id) => {
     const response = await api.get(`/product/fetch/${id}`);
-
     return response.data;
   },
 };
@@ -64,7 +64,9 @@ const transformAPIDataToFormData = (apiData) => {
   if (apiData.variants && Array.isArray(apiData.variants)) {
     apiData.variants.forEach((variant) => {
       const color = variant.color;
-      colors.push(color);
+      if (!colors.includes(color)) {
+        colors.push(color);
+      }
 
       if (variant.images && Array.isArray(variant.images)) {
         variant.images.forEach((imageUrl) => {
@@ -123,7 +125,8 @@ const transformAPIDataToFormData = (apiData) => {
 };
 
 const AddProduct = () => {
-  const location =  useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
   const id = location?.state?.id;
   const [formData, setFormData] = useState(initialFormData);
   const [isLoading, setIsLoading] = useState(false);
@@ -140,6 +143,7 @@ const AddProduct = () => {
   });
   const [editingSizeInfo, setEditingSizeInfo] = useState(null);
   const [editingImage, setEditingImage] = useState(null);
+  const [editingImageColor, setEditingImageColor] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -149,11 +153,10 @@ const AddProduct = () => {
       try {
         setIsFetching(true);
         const product = await productAPI.getProduct(id);
-
         const {
           formData: transformedFormData,
           colorSizes: transformedColorSizes,
-        } = transformAPIDataToFormData(product);
+        } = transformAPIDataToFormData(product.data);
 
         setFormData(transformedFormData);
         setColorSizes(transformedColorSizes);
@@ -175,11 +178,13 @@ const AddProduct = () => {
 
   useEffect(() => {
     return () => {
-      previewUrls.forEach((url) => {
-        if (url.startsWith("blob:")) {
-          URL.revokeObjectURL(url);
-        }
-      });
+      if (previewUrls?.length > 0) {
+        previewUrls.forEach((url) => {
+          if (typeof url === "string" && url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
+          }
+        });
+      }
     };
   }, [previewUrls]);
 
@@ -205,7 +210,6 @@ const AddProduct = () => {
     const files = Array.from(event.target.files);
     setTempFiles(files);
 
-    // Clear the input if no files selected (when user cancels)
     if (files.length === 0 && fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -243,7 +247,6 @@ const AddProduct = () => {
       };
     });
 
-    // Initialize sizes for new color
     if (!colorSizes[normalizedColor]) {
       setColorSizes((prev) => ({
         ...prev,
@@ -255,7 +258,6 @@ const AddProduct = () => {
     setTempFiles([]);
     setColor("#000000");
 
-    // Clear the file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -264,10 +266,11 @@ const AddProduct = () => {
   const handleRemoveImage = useCallback(
     (indexToRemove, imageColor) => {
       const imageToRemove = formData.images[indexToRemove];
+      if (!imageToRemove) return;
 
-      // Revoke object URL if it's a blob URL
-      if (imageToRemove.url && imageToRemove.url.startsWith("blob:")) {
-        URL.revokeObjectURL(imageToRemove.url);
+      const imageUrl = imageToRemove.url || imageToRemove;
+      if (typeof imageUrl === "string" && imageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(imageUrl);
       }
 
       setFormData((prevData) => {
@@ -275,28 +278,29 @@ const AddProduct = () => {
           (_, index) => index !== indexToRemove
         );
         const remainingColorImages = newImages.filter(
-          (img) => img.color === imageColor
+          (img) => img && img.color === imageColor
         );
 
-        // Remove color if no images left
         const shouldRemoveColor = remainingColorImages.length === 0;
 
         return {
           ...prevData,
           images: newImages,
           colors: shouldRemoveColor
-            ? prevData.colors.filter((c) => c !== imageColor)
+            ? (prevData.colors || []).filter((c) => c !== imageColor)
             : prevData.colors,
         };
       });
 
-      // Remove from preview URLs
-      setPreviewUrls((prev) => prev.filter((url) => url !== imageToRemove.url));
+      setPreviewUrls((prev) =>
+        prev.filter(
+          (url) => url !== (typeof imageUrl === "string" ? imageUrl : "")
+        )
+      );
 
-      // Remove sizes if color is being removed
-      if (colorSizes[imageColor]) {
+      if (colorSizes && colorSizes[imageColor]) {
         const imageCount = formData.images.filter(
-          (img) => img.color === imageColor
+          (img) => img && img.color === imageColor
         ).length;
         if (imageCount <= 1) {
           setColorSizes((prev) => {
@@ -309,6 +313,49 @@ const AddProduct = () => {
     },
     [colorSizes, formData.images]
   );
+
+  // NEW: Handle image color change
+  const handleImageColorChange = useCallback((imageIndex, newColor) => {
+    const normalizedColor = normalizeHexColor(newColor);
+
+    if (!isValidHexColor(normalizedColor)) {
+      toast.error("Please enter a valid hex color code (e.g., #000000)");
+      return;
+    }
+
+    setFormData((prevData) => {
+      const updatedImages = [...prevData.images];
+      const imageToUpdate = updatedImages[imageIndex];
+
+      if (!imageToUpdate) return prevData;
+
+      // Update the image color
+      updatedImages[imageIndex] = {
+        ...imageToUpdate,
+        color: normalizedColor,
+      };
+
+      // Get unique colors from updated images
+      const updatedColors = [...new Set(updatedImages.map((img) => img.color))];
+
+      return {
+        ...prevData,
+        images: updatedImages,
+        colors: updatedColors,
+      };
+    });
+
+    // Ensure colorSizes entry exists for the new color
+    setColorSizes((prev) => {
+      if (!prev[normalizedColor]) {
+        return {
+          ...prev,
+          [normalizedColor]: [],
+        };
+      }
+      return prev;
+    });
+  }, []);
 
   const handleSizeInputChange = useCallback(
     (e, color, field) => {
@@ -409,10 +456,36 @@ const AddProduct = () => {
     setEditingSizeInfo(null);
   }, [editingSizeInfo]);
 
+  // NEW: Handle edit image color
+  const handleEditImageColor = useCallback((image, imageColor, index) => {
+    setEditingImageColor({
+      imageIndex: index,
+      currentColor: imageColor,
+      image: image,
+    });
+  }, []);
+
+  // NEW: Update image color
+  const handleUpdateImageColor = useCallback(
+    (newColor) => {
+      if (!editingImageColor) return;
+
+      const normalizedColor = normalizeHexColor(newColor);
+
+      if (!isValidHexColor(normalizedColor)) {
+        toast.error("Please enter a valid hex color code (e.g., #000000)");
+        return;
+      }
+
+      handleImageColorChange(editingImageColor.imageIndex, normalizedColor);
+      setEditingImageColor(null);
+    },
+    [editingImageColor, handleImageColorChange]
+  );
+
   const groupImagesByColor = useCallback((images, sizes) => {
     const colorDataMap = {};
 
-    // Group images by color
     images.forEach((image) => {
       const { color, url } = image;
       if (!colorDataMap[color]) {
@@ -425,12 +498,10 @@ const AddProduct = () => {
       }
 
       if (url) {
-        // Push as object with imageUrl property
         colorDataMap[color].images.push({ imageUrl: url });
       }
     });
 
-    // Add sizes to each color group
     Object.entries(sizes).forEach(([color, sizesArray]) => {
       if (!colorDataMap[color]) {
         colorDataMap[color] = {
@@ -489,6 +560,8 @@ const AddProduct = () => {
     };
   }, []);
 
+  const queryClient = useQueryClient();
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -523,27 +596,42 @@ const AddProduct = () => {
       const colorGroups = groupImagesByColor(formData.images, colorSizes);
       const apiData = transformFormDataForAPI(formData, colorGroups);
 
-      console.log("Submitting product:", JSON.stringify(apiData, null, 2));
-
       let response;
       if (id) {
         response = await productAPI.updateProduct(id, apiData);
+        console.log(response, "edit");
+        queryClient.setQueryData(["products"], (oldData) => {
+          if (!oldData?.data) return oldData;
+
+          return {
+            ...oldData,
+            data: oldData.data.map((product) =>
+              product.id === response.data.id ? response.data : product
+            ),
+          };
+        });
+        navigate("/");
         toast.success("Product updated successfully");
       } else {
         response = await productAPI.addProduct(apiData);
-        toast.success("Product added successfully");
+        console.log(response, "add");
+        queryClient.setQueryData(["products"], (oldData) => {
+          if (!oldData?.data) return oldData;
+
+          return {
+            ...oldData,
+            data: [response.data, ...oldData.data],
+          };
+        });
+        toast.success("Product added successfully!");
       }
 
-      console.log("API Response:", response);
-
-      // Reset form only for new products
       if (!id) {
         setFormData(initialFormData);
         setColorSizes({});
         setPreviewUrls([]);
         setCurrentSizeInput({ color: null, size: "", quantity: 1 });
 
-        // Clear file input
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
@@ -576,37 +664,41 @@ const AddProduct = () => {
 
   const handleReplaceImage = useCallback(() => {
     if (tempFiles.length === 0) {
-      toast.error("Please select an image to replace the existing one.");
+      toast.error("Please select a new image.");
+      return;
+    }
+
+    if (!editingImage || !editingImage.originalImage) {
+      toast.error("Invalid image selection.");
       return;
     }
 
     const newFile = tempFiles[0];
     const newUrl = URL.createObjectURL(newFile);
+    const originalImage = editingImage.originalImage;
+    const originalUrl =
+      typeof originalImage === "string" ? originalImage : originalImage.url;
 
-    // Revoke old URL if it's a blob URL
-    if (editingImage.originalImage.url.startsWith("blob:")) {
-      URL.revokeObjectURL(editingImage.originalImage.url);
+    if (typeof originalUrl === "string" && originalUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(originalUrl);
     }
 
     setFormData((prevData) => ({
       ...prevData,
       images: prevData.images.map((img) =>
-        img.url === editingImage.originalImage.url
+        img.url === originalUrl
           ? { ...img, file: newFile, url: newUrl, color: editingImage.color }
           : img
       ),
     }));
 
     setPreviewUrls((prevUrls) =>
-      prevUrls.map((url) =>
-        url === editingImage.originalImage.url ? newUrl : url
-      )
+      prevUrls.map((url) => (url === originalUrl ? newUrl : url))
     );
 
     setTempFiles([]);
     setEditingImage(null);
 
-    // Clear the file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -638,7 +730,6 @@ const AddProduct = () => {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-6 font-[monospace]">
-        {/* Name */}
         <div>
           <label className="block font-medium">Name*</label>
           <input
@@ -789,7 +880,6 @@ const AddProduct = () => {
             <option value="girls">Girls</option>
           </select>
         </div>
-
         <div className="flex justify-center text-[30px]">
           <span>Select Images For Product</span>
         </div>
@@ -864,6 +954,7 @@ const AddProduct = () => {
               onCancelSizeEdit={() => setEditingSizeInfo(null)}
               onRemoveImage={handleRemoveImage}
               onEditImage={handleEditImage}
+              onEditImageColor={handleEditImageColor} // NEW PROP
             />
           ))}
         </div>
@@ -875,6 +966,15 @@ const AddProduct = () => {
             onFileChange={handleFileUpload}
             onReplace={handleReplaceImage}
             onCancel={() => setEditingImage(null)}
+          />
+        )}
+
+        {/* NEW: Image Color Edit Modal */}
+        {editingImageColor && (
+          <ImageColorEditModal
+            editingImageColor={editingImageColor}
+            onUpdateColor={handleUpdateImageColor}
+            onCancel={() => setEditingImageColor(null)}
           />
         )}
 
@@ -896,6 +996,7 @@ const AddProduct = () => {
   );
 };
 
+// UPDATED: ColorVariantSection with color edit button
 const ColorVariantSection = ({
   color,
   images,
@@ -910,6 +1011,7 @@ const ColorVariantSection = ({
   onCancelSizeEdit,
   onRemoveImage,
   onEditImage,
+  onEditImageColor, // NEW PROP
 }) => (
   <div className="mb-6">
     <div className="flex items-center gap-2 mb-2">
@@ -976,11 +1078,136 @@ const ColorVariantSection = ({
           index={index}
           onEdit={onEditImage}
           onRemove={onRemoveImage}
+          onEditColor={onEditImageColor} // NEW PROP
         />
       ))}
     </div>
   </div>
 );
+
+// UPDATED: ImageThumbnail with color edit button
+const ImageThumbnail = ({
+  image,
+  color,
+  index,
+  onEdit,
+  onRemove,
+  onEditColor,
+}) => (
+  <div className="relative">
+    <img
+      src={image.url}
+      alt={`${color} ${index + 1}`}
+      className="w-24 h-24 object-cover rounded-lg"
+      style={{ border: `2px solid ${color}` }}
+    />
+    <div className="absolute top-0 right-0 flex flex-col">
+      <button
+        onClick={() => onEdit(image, color)}
+        type="button"
+        className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-blue-600 mb-1"
+        title="Replace Image"
+      >
+        ✎
+      </button>
+      <button
+        onClick={() => onEditColor(image, color, index)}
+        type="button"
+        className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-green-600 mb-1"
+        title="Change Color"
+      >
+        🎨
+      </button>
+      <button
+        type="button"
+        onClick={() => onRemove(index, color)}
+        className="bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+        title="Remove Image"
+      >
+        ×
+      </button>
+    </div>
+  </div>
+);
+
+// NEW: ImageColorEditModal Component
+const ImageColorEditModal = ({
+  editingImageColor,
+  onUpdateColor,
+  onCancel,
+}) => {
+  const [newColor, setNewColor] = useState(editingImageColor.currentColor);
+
+  const handleColorChange = (e) => {
+    setNewColor(e.target.value);
+  };
+
+  const handleSubmit = () => {
+    onUpdateColor(newColor);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg max-w-md w-full">
+        <h2 className="text-xl font-bold mb-4">Change Image Color</h2>
+
+        <div className="mb-4">
+          <p className="mb-2">Current Color:</p>
+          <div className="flex items-center gap-4">
+            <div
+              className="w-12 h-12 rounded border border-gray-300"
+              style={{ backgroundColor: editingImageColor.currentColor }}
+            />
+            <span>{editingImageColor.currentColor}</span>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block font-medium mb-2">New Color:</label>
+          <div className="flex items-center gap-4">
+            <input
+              type="color"
+              value={newColor}
+              onChange={handleColorChange}
+              className="h-10 w-16 cursor-pointer p-0 border border-gray-300 rounded"
+            />
+            <input
+              type="text"
+              value={newColor}
+              onChange={handleColorChange}
+              placeholder="#000000"
+              className="flex-1 py-2 px-3 border border-gray-300 rounded"
+            />
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-sm text-gray-600">Preview:</span>
+            <div
+              className="w-8 h-8 rounded border border-gray-300"
+              style={{ backgroundColor: newColor }}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-between">
+          <button
+            onClick={handleSubmit}
+            className="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600"
+          >
+            Update Color
+          </button>
+          <button
+            onClick={onCancel}
+            className="bg-gray-300 text-black py-2 px-4 rounded hover:bg-gray-400"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ... (rest of your components: SizeChip, ImageReplacementModal remain the same) ...
 
 const SizeChip = ({
   sizeObj,
@@ -1056,33 +1283,6 @@ const SizeChip = ({
     </div>
   );
 };
-
-const ImageThumbnail = ({ image, color, index, onEdit, onRemove }) => (
-  <div className="relative">
-    <img
-      src={image.url}
-      alt={`${color} ${index + 1}`}
-      className="w-24 h-24 object-cover rounded-lg"
-      style={{ border: `2px solid ${color}` }}
-    />
-    <div className="absolute top-0 right-0 flex">
-      <button
-        onClick={() => onEdit(image, color)}
-        type="button"
-        className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-blue-600 mr-1"
-      >
-        ✎
-      </button>
-      <button
-        type="button"
-        onClick={() => onRemove(index, color)}
-        className="bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
-      >
-        ×
-      </button>
-    </div>
-  </div>
-);
 
 const ImageReplacementModal = ({
   editingImage,

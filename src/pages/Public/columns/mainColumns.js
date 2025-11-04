@@ -1,27 +1,51 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { MdEdit, MdDelete } from "react-icons/md";
 import noImage from "../../../assets/img/NoImage.jpg";
+import React from "react";
 
 const columnHelper = createColumnHelper();
+
+// Custom Image Component to prevent blinking
+const ProductImage = ({ product }) => {
+  const [imgSrc, setImgSrc] = React.useState(noImage);
+  const [hasError, setHasError] = React.useState(false);
+
+  React.useEffect(() => {
+    const firstImage = product?.variants?.[0]?.images?.[0]?.imageUrl;
+    
+    if (firstImage) {
+      setImgSrc(firstImage);
+      setHasError(false);
+    } else {
+      setImgSrc(noImage);
+      setHasError(true);
+    }
+  }, [product]);
+
+  const handleError = () => {
+    if (!hasError) {
+      setImgSrc(noImage);
+      setHasError(true);
+    }
+  };
+
+  return (
+    <div className="image-container">
+      <img
+        src={imgSrc}
+        alt={product.name}
+        className="w-12 h-12 object-cover rounded border"
+        onError={handleError}
+      />
+    </div>
+  );
+};
 
 export const productColumns = (handleEdit, handleDelete) => [
   columnHelper.accessor("image", {
     header: <div className="font-[monospace] font-xs">Image</div>,
     cell: (info) => {
-      const product = info.row.original;
-      const firstImage =
-        product?.variants?.[0]?.images?.[0]?.imageUrl || noImage;
-      return (
-        <img
-          src={firstImage}
-          alt={product.name}
-          className="w-12 h-12 object-cover rounded border"
-          onError={(e) => {
-            e.currentTarget.onerror = null;
-            e.currentTarget.src = noImage;
-          }}
-        />
-      );
+      return <ProductImage product={info.row.original} />;
     },
   }),
 
@@ -134,23 +158,25 @@ export const productColumns = (handleEdit, handleDelete) => [
     header: <div className="font-[monospace]">Actions</div>,
     cell: (info) => {
       const product = info.row.original;
-
       return (
         <div className="flex justify-center gap-2">
           <button
-        type="button"
-        className="inline-flex items-center justify-center p-2 rounded-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleEdit(product.id);
-        }}
-        aria-label="Edit product"
-      >
-        <MdEdit size={18} />
-      </button>
+            type="button"
+            className="inline-flex items-center justify-center p-2 rounded-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleEdit(product.id);
+            }}
+            aria-label="Edit product"
+          >
+            <MdEdit size={18} />
+          </button>
           <button
             className="bg-black text-white p-2 rounded-full hover:bg-gray-800 transition"
-            onClick={() => handleDelete(product.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(product.id);
+            }}
           >
             <MdDelete size={18} />
           </button>
