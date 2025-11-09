@@ -13,7 +13,7 @@ function MainLayout() {
                     <Navbar />
                     <section className="flex h-full">
                         <Sidebar />
-                        <div className="w-full h-full">
+                        <div className="w-full h-full mt-[40px]">
                             <Outlet />
                         </div>
                     </section>

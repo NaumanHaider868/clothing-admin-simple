@@ -314,48 +314,64 @@ const AddProduct = () => {
     [colorSizes, formData.images]
   );
 
-  // NEW: Handle image color change
-  const handleImageColorChange = useCallback((imageIndex, newColor) => {
-    const normalizedColor = normalizeHexColor(newColor);
+  const handleImageColorChange = useCallback(
+    (imageIndex, newColor) => {
+      const normalizedColor = normalizeHexColor(newColor);
 
-    if (!isValidHexColor(normalizedColor)) {
-      toast.error("Please enter a valid hex color code (e.g., #000000)");
-      return;
-    }
-
-    setFormData((prevData) => {
-      const updatedImages = [...prevData.images];
-      const imageToUpdate = updatedImages[imageIndex];
-
-      if (!imageToUpdate) return prevData;
-
-      // Update the image color
-      updatedImages[imageIndex] = {
-        ...imageToUpdate,
-        color: normalizedColor,
-      };
-
-      // Get unique colors from updated images
-      const updatedColors = [...new Set(updatedImages.map((img) => img.color))];
-
-      return {
-        ...prevData,
-        images: updatedImages,
-        colors: updatedColors,
-      };
-    });
-
-    // Ensure colorSizes entry exists for the new color
-    setColorSizes((prev) => {
-      if (!prev[normalizedColor]) {
-        return {
-          ...prev,
-          [normalizedColor]: [],
-        };
+      if (!isValidHexColor(normalizedColor)) {
+        toast.error("Please enter a valid hex color code (e.g., #000000)");
+        return;
       }
-      return prev;
-    });
-  }, []);
+
+      setFormData((prevData) => {
+        const updatedImages = [...prevData.images];
+        const imageToUpdate = updatedImages[imageIndex];
+
+        if (!imageToUpdate) return prevData;
+
+        updatedImages[imageIndex] = {
+          ...imageToUpdate,
+          color: normalizedColor,
+        };
+
+        const updatedColors = [
+          ...new Set(updatedImages.map((img) => img.color)),
+        ];
+
+        return {
+          ...prevData,
+          images: updatedImages,
+          colors: updatedColors,
+        };
+      });
+
+      setColorSizes((prev) => {
+        const newColorSizes = { ...prev };
+
+        const currentImages = formData.images;
+        const imageToUpdate = currentImages[imageIndex];
+
+        if (!imageToUpdate) return prev;
+
+        const oldColor = imageToUpdate.color;
+
+        const hasOldColorImages = currentImages.some(
+          (img, index) => index !== imageIndex && img.color === oldColor
+        );
+
+        if (!hasOldColorImages && newColorSizes[oldColor]) {
+          delete newColorSizes[oldColor];
+        }
+
+        if (!newColorSizes[normalizedColor]) {
+          newColorSizes[normalizedColor] = [];
+        }
+
+        return newColorSizes;
+      });
+    },
+    [formData.images]
+  );
 
   const handleSizeInputChange = useCallback(
     (e, color, field) => {
@@ -456,7 +472,6 @@ const AddProduct = () => {
     setEditingSizeInfo(null);
   }, [editingSizeInfo]);
 
-  // NEW: Handle edit image color
   const handleEditImageColor = useCallback((image, imageColor, index) => {
     setEditingImageColor({
       imageIndex: index,
@@ -465,23 +480,51 @@ const AddProduct = () => {
     });
   }, []);
 
-  // NEW: Update image color
   const handleUpdateImageColor = useCallback(
     (newColor) => {
       if (!editingImageColor) return;
-
-      const normalizedColor = normalizeHexColor(newColor);
-
-      if (!isValidHexColor(normalizedColor)) {
-        toast.error("Please enter a valid hex color code (e.g., #000000)");
-        return;
-      }
-
-      handleImageColorChange(editingImageColor.imageIndex, normalizedColor);
+      handleImageColorChange(editingImageColor.imageIndex, newColor);
       setEditingImageColor(null);
     },
     [editingImageColor, handleImageColorChange]
   );
+
+  const transformFormDataForAPI = useCallback((formData, colorGroups) => {
+    const genderMap = {
+      male: "men",
+      female: "women",
+      unisex: "unisex",
+    };
+
+    const groupMap = {
+      kids: "boys",
+      adults: "adults",
+    };
+
+    const validColorGroups = colorGroups.filter(
+      (group) => group.images && group.images.length > 0
+    );
+
+    return {
+      name: formData.name,
+      description: formData.description,
+      price: Number(formData.price),
+      collection: formData.collection,
+      modelDetail: formData.modelDetail,
+      isPublic: formData.showToCustomer,
+      gender: genderMap[formData.gender] || formData.gender,
+      collectionType: groupMap[formData.group] || formData.group,
+      onSale: formData.isOnSale,
+      discountPercent: formData.isOnSale ? Number(formData.discount) : 0,
+      inStock: formData.inStock,
+      type: formData.season,
+      variants: validColorGroups.map((group) => ({
+        color: group.color,
+        images: group.images.map((img) => img.imageUrl || img.url),
+        sizes: group.sizes,
+      })),
+    };
+  }, []);
 
   const groupImagesByColor = useCallback((images, sizes) => {
     const colorDataMap = {};
@@ -498,66 +541,29 @@ const AddProduct = () => {
       }
 
       if (url) {
-        colorDataMap[color].images.push({ imageUrl: url });
+        colorDataMap[color].images.push({
+          imageUrl: url,
+          url: url,
+        });
       }
     });
 
     Object.entries(sizes).forEach(([color, sizesArray]) => {
-      if (!colorDataMap[color]) {
-        colorDataMap[color] = {
-          color: color,
-          images: [],
-          sizes: [],
-          totalQuantity: 0,
-        };
+      if (colorDataMap[color]) {
+        const sizeData = sizesArray.map((sizeObj) => ({
+          size: sizeObj.value,
+          stockCount: sizeObj.quantity,
+        }));
+
+        colorDataMap[color].sizes = sizeData;
+        colorDataMap[color].totalQuantity = sizesArray.reduce(
+          (sum, sizeObj) => sum + sizeObj.quantity,
+          0
+        );
       }
-
-      const sizeData = sizesArray.map((sizeObj) => ({
-        size: sizeObj.value,
-        stockCount: sizeObj.quantity,
-      }));
-
-      colorDataMap[color].sizes = sizeData;
-      colorDataMap[color].totalQuantity = sizesArray.reduce(
-        (sum, sizeObj) => sum + sizeObj.quantity,
-        0
-      );
     });
 
     return Object.values(colorDataMap);
-  }, []);
-
-  const transformFormDataForAPI = useCallback((formData, colorGroups) => {
-    const genderMap = {
-      male: "men",
-      female: "women",
-      unisex: "unisex",
-    };
-
-    const groupMap = {
-      kids: "boys",
-      adults: "adults",
-    };
-
-    return {
-      name: formData.name,
-      description: formData.description,
-      price: Number(formData.price),
-      collection: formData.collection,
-      modelDetail: formData.modelDetail,
-      isPublic: formData.showToCustomer,
-      gender: genderMap[formData.gender] || formData.gender,
-      collectionType: groupMap[formData.group] || formData.group,
-      onSale: formData.isOnSale,
-      discountPercent: formData.isOnSale ? Number(formData.discount) : 0,
-      inStock: formData.inStock,
-      type: formData.season,
-      variants: colorGroups.map((group) => ({
-        color: group.color,
-        images: group.images,
-        sizes: group.sizes,
-      })),
-    };
   }, []);
 
   const queryClient = useQueryClient();
@@ -782,36 +788,6 @@ const AddProduct = () => {
           />
         </div>
 
-        {/* Sale & Discount */}
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="block font-medium">Is On Sale</label>
-            <input
-              type="checkbox"
-              name="isOnSale"
-              checked={formData.isOnSale}
-              onChange={handleInputChange}
-              className="mt-2"
-            />
-          </div>
-
-          {formData.isOnSale && (
-            <div>
-              <label className="block font-medium">Discount (%):*</label>
-              <input
-                type="number"
-                name="discount"
-                required
-                min="0"
-                max={MAX_DISCOUNT}
-                value={formData.discount}
-                onChange={handleInputChange}
-                className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
-              />
-            </div>
-          )}
-        </div>
-
         {/* Season */}
         <div>
           <label className="block font-medium">Season</label>
@@ -880,6 +856,48 @@ const AddProduct = () => {
             <option value="girls">Girls</option>
           </select>
         </div>
+
+        <div>
+          <label className="block font-medium">Public</label>
+          <input
+            type="checkbox"
+            name="showToCustomer"
+            checked={formData.showToCustomer}
+            onChange={handleInputChange}
+            className="mt-2"
+          />
+        </div>
+
+        {/* Sale & Discount */}
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="block font-medium">Is On Sale</label>
+            <input
+              type="checkbox"
+              name="isOnSale"
+              checked={formData.isOnSale}
+              onChange={handleInputChange}
+              className="mt-2"
+            />
+          </div>
+
+          {formData.isOnSale && (
+            <div>
+              <label className="block font-medium">Discount (%):*</label>
+              <input
+                type="number"
+                name="discount"
+                required
+                min="0"
+                max={MAX_DISCOUNT}
+                value={formData.discount}
+                onChange={handleInputChange}
+                className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
+              />
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-center text-[30px]">
           <span>Select Images For Product</span>
         </div>

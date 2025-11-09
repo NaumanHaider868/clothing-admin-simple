@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -52,27 +52,29 @@ export const Collection = () => {
   const itemsPerPage = 10;
   const totalPages = Math.ceil(products.length / itemsPerPage);
 
-  const paginatedProducts = products.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+  const paginatedProducts = useMemo(() => {
+    return products.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    );
+  }, [products, currentPage]);
+
+  const handleEdit = useCallback(
+    (id) => {
+      console.log(id);
+      navigate(`/product_action`, { state: { id } });
+    },
+    [navigate]
   );
 
-  // Use useCallback to prevent unnecessary recreations
-  const handleEdit = useCallback((id) => {
-    console.log(id);
-    navigate(`/product_action`, { state: { id } });
-  }, [navigate]);
-
-  // Fix: Remove deleteMutation from dependencies and use the stable mutate function
   const handleDelete = useCallback((id) => {
     if (window.confirm("Are you sure you want to delete this product?")) {
       deleteMutation.mutate(id);
     }
-  }, []); // Remove deleteMutation from dependencies
+  }, []);
 
-  // Use useMemo to recreate columns only when handlers change
-  const columns = useMemo(() => 
-    productColumns(handleEdit, handleDelete),
+  const columns = useMemo(
+    () => productColumns(handleEdit, handleDelete),
     [handleDelete, handleEdit]
   );
 
@@ -80,6 +82,7 @@ export const Collection = () => {
     data: paginatedProducts,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    manualPagination: true, // optional, makes intent clear
   });
 
   useEffect(() => {
@@ -135,23 +138,28 @@ export const Collection = () => {
                     const isActionCell = String(cell.column.id)
                       .toLowerCase()
                       .includes("action");
+
                     const cellContent = flexRender(
                       cell.column.columnDef.cell,
                       cell.getContext()
                     );
 
+                    if (isActionCell) {
+                      return (
+                        <td key={cell.id} className="px-4 py-3">
+                          {cellContent}
+                        </td>
+                      );
+                    }
+
                     return (
                       <td key={cell.id} className="px-4 py-3">
-                        {isActionCell ? (
-                          cellContent
-                        ) : (
-                          <Link
-                            to={`/product/${row.original.id}`}
-                            className="block w-full h-full"
-                          >
-                            {cellContent}
-                          </Link>
-                        )}
+                        <Link
+                          to={`/product/${row.original.id}`}
+                          className="block w-full h-full hover:text-blue-600 transition-colors"
+                        >
+                          {cellContent}
+                        </Link>
                       </td>
                     );
                   })}
