@@ -19,9 +19,15 @@ axiosInstance.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      window.location.href = "/";
+    if (
+      error.response?.status === 401 &&
+      !String(error.config?.url || "").includes("/auth/login")
+    ) {
       localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   }

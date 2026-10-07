@@ -1,8 +1,11 @@
+const apiError = (error, fallback = "Something went wrong") =>
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback;
+
 const ErrorHandler = ({ error, message = "Something went wrong", handleReFetch }) => {
-    const errorMessage =
-        error?.response?.data?.message ||
-        error?.message ||
-        "Failed to load products.";
+    const errorMessage = apiError(error, "Failed to load products.");
 
     return (
         <div className="w-full pr-[52px]">
@@ -25,4 +28,5 @@ const ErrorHandler = ({ error, message = "Something went wrong", handleReFetch }
     );
 };
 
+export { apiError };
 export default ErrorHandler;
