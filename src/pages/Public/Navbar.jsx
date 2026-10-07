@@ -1,11 +1,29 @@
 import React, { useEffect, useState } from "react";
 import "../../assets/css/style.scss";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FaPlus } from "react-icons/fa6";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "../../context/AuthContext";
+import { canWriteProducts, ROLE_LABEL } from "../../utlis/roles";
+import { api } from "../../utlis/customAPI";
+import { seasonLabel, seasonsFromProducts } from "../../utlis/seasons";
 
 export default function Navbar() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
+  const activeSeason = (searchParams.get("season") || "").toLowerCase();
+
+  const { data } = useQuery({
+    queryKey: ["products"],
+    queryFn: async () => {
+      const response = await api.get("/product/all");
+      return response.data;
+    },
+  });
+
+  const seasons = seasonsFromProducts(Array.isArray(data?.data) ? data.data : []);
 
   const handleNavigate = (e) => {
     e.preventDefault();
@@ -37,36 +55,17 @@ export default function Navbar() {
                 isScrolled ? "text-white" : ""
               }`}
             >
-              <li className="text-[1rem]">
-                <Link to="/">All Products</Link>
+              <li className={`text-[1rem] ${activeSeason ? "" : "active"}`}>
+                <Link to="/">All</Link>
               </li>
-              {/* <li className="text-[1rem]">
-                <Link to="/">Men</Link>
-              </li>
-              <li className="text-[1rem]">
-                <Link to="/">Woman</Link>
-              </li>
-              <li className="text-[1rem]">
-                <Link to="/">Boys</Link>
-              </li>
-              <li className="text-[1rem]">
-                <Link to="/">Girls</Link>
-              </li> */}
-
-              <li className="has-dropdown relative">
-                <span className="text-[1rem]">Collections</span>
-                <div className="dropdown absolute bg-white text-black p-3 rounded shadow hidden group-hover:block">
-                  <div className="dropdown-col">
-                    <span className="title font-semibold">Seasons</span>
-                    <ul>
-                      <li>Winter</li>
-                      <li>Summer</li>
-                      <li>Monsoon</li>
-                      <li>All Seasons</li>
-                    </ul>
-                  </div>
-                </div>
-              </li>
+              {seasons.map((season) => (
+                <li
+                  key={season}
+                  className={`text-[1rem] ${activeSeason === season ? "active" : ""}`}
+                >
+                  <Link to={`/?season=${encodeURIComponent(season)}`}>{seasonLabel(season)}</Link>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -76,14 +75,28 @@ export default function Navbar() {
 
           <div className="option-r flex justify-between items-center">
             <ul className="user-option flex gap-4">
-              <li
-                className="w-[50px] h-[50px] rounded-full bg-[#D1D5DB] text-black flex justify-center items-center cursor-pointer"
-                onClick={handleNavigate}
-              >
-                <FaPlus className="w-[20px] h-[20px]" />
-              </li>
-              <li className="user">
-                <span></span>
+              {canWriteProducts(user?.role) ? (
+                <li
+                  className="w-[50px] h-[50px] rounded-full bg-[#D1D5DB] text-black flex justify-center items-center cursor-pointer"
+                  onClick={handleNavigate}
+                >
+                  <FaPlus className="w-[20px] h-[20px]" />
+                </li>
+              ) : null}
+              <li className="font-[monospace] text-sm flex items-center gap-3">
+                <span>
+                  {user?.firstName || user?.email} · {ROLE_LABEL[user?.role] || user?.role}
+                </span>
+                <button
+                  type="button"
+                  className="underline"
+                  onClick={() => {
+                    logout();
+                    navigate("/login");
+                  }}
+                >
+                  Log out
+                </button>
               </li>
             </ul>
           </div>

@@ -2,14 +2,22 @@ import React, { useRef, useEffect, useState } from "react";
 import { IoClose } from "react-icons/io5";
 import { IoIosArrowBack, IoIosArrowForward } from "react-icons/io";
 import { MdZoomOut, MdZoomIn, MdFitScreen } from "react-icons/md";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../utlis/customAPI";
-import { useQuery } from "@tanstack/react-query";
-import ErrorHandler from "../../../../utlis/common";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "react-toastify";
+import ErrorHandler, { apiError } from "../../../../utlis/common";
 import ViewProductSkeleton from "../../../../utlis/shimmar/viewProduct";
+import { useAuth } from "../../../../context/AuthContext";
+import { canDeleteProducts, canWriteProducts } from "../../../../utlis/roles";
+import { ConfirmDialog } from "../../../../components/ConfirmDialog";
 
 function ViewProduct() {
     const { id } = useParams()
+    const navigate = useNavigate()
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+    const [confirmDelete, setConfirmDelete] = useState(false)
     const { data, isLoading, isError, error, refetch } = useQuery({
         queryKey: ["product", id],
         queryFn: async () => {
@@ -32,6 +40,18 @@ function ViewProduct() {
     const [isDragging, setIsDragging] = useState(false);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [startPosition, setStartPosition] = useState({ x: 0, y: 0 });
+
+    const deleteMutation = useMutation({
+        mutationFn: async () => {
+            await api.delete(`/product/delete/${id}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["products"] });
+            toast.success("Product deleted successfully");
+            navigate("/");
+        },
+        onError: (err) => toast.error(apiError(err, "Failed to delete product")),
+    });
 
     const product = data?.data;
 
@@ -295,6 +315,7 @@ function ViewProduct() {
                                         onClick={() => handleSizeSelect(sizeObj.size)}
                                     >
                                         {sizeObj.size}
+                                        <span className="text-xs text-gray-500 ml-1">({sizeObj.stockCount})</span>
                                     </div>
                                 ))}
                             </div>
@@ -307,12 +328,26 @@ function ViewProduct() {
                             </div>
                         )}
 
-                        <button
-                            className={`product-add ${!product?.inStock || !selectedSize ? 'opacity-50 cursor-not-allowed' : ''} font-[monospace] text-white bg-black w-full py-3 mt-4 rounded-md hover:bg-gray-800 transition-all text-[16px]`}
-                            disabled={!product?.inStock || !selectedSize}
-                        >
-                            {!product?.inStock ? 'Out of stock' : !selectedSize ? 'Select Size' : 'Add To Cart'}
-                        </button>
+                        <div className="flex gap-3 mt-4">
+                            {canWriteProducts(user?.role) ? (
+                                <button
+                                    type="button"
+                                    className="font-[monospace] text-white bg-black flex-1 py-3 rounded-md"
+                                    onClick={() => navigate("/product_action", { state: { id: product.id } })}
+                                >
+                                    Edit product
+                                </button>
+                            ) : null}
+                            {canDeleteProducts(user?.role) ? (
+                                <button
+                                    type="button"
+                                    className="font-[monospace] border border-black flex-1 py-3 rounded-md"
+                                    onClick={() => setConfirmDelete(true)}
+                                >
+                                    Delete
+                                </button>
+                            ) : null}
+                        </div>
 
                         <div className="additional-info mt-6 space-y-2 text-sm text-gray-600 font-[monospace]">
                             <div className="flex justify-between">
@@ -434,6 +469,15 @@ function ViewProduct() {
                     </div>
                 </div>
             )}
+            <ConfirmDialog
+                open={confirmDelete}
+                title="Delete product"
+                message="This removes the product and writes a deletion record."
+                confirmLabel="Delete"
+                busy={deleteMutation.isPending}
+                onClose={() => setConfirmDelete(false)}
+                onConfirm={() => deleteMutation.mutate()}
+            />
         </div>
     );
 }

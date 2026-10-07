@@ -6,11 +6,13 @@ import React, {
   useRef,
 } from "react";
 import { toast } from "react-toastify";
-import { v4 as uuidv4 } from "uuid";
 import Loader from "react-js-loader";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../../../utlis/customAPI";
+import { apiError } from "../../../../utlis/common";
 import { useQueryClient } from "@tanstack/react-query";
+import { RoleGate } from "../../../../components/RoleGate";
+import { canWriteProducts } from "../../../../utlis/roles";
 
 const MAX_DISCOUNT = 80;
 const MIN_PRICE = 10;
@@ -50,6 +52,13 @@ const productAPI = {
     const response = await api.get(`/product/fetch/${id}`);
     return response.data;
   },
+
+  uploadImages: async (files) => {
+    const body = new FormData();
+    files.forEach((file) => body.append("images", file));
+    const response = await api.post("/product/images", body);
+    return response.data;
+  },
 };
 
 const isValidHexColor = (color) => /^#([A-Fa-f0-9]{6})$/.test(color);
@@ -69,9 +78,11 @@ const transformAPIDataToFormData = (apiData) => {
       }
 
       if (variant.images && Array.isArray(variant.images)) {
-        variant.images.forEach((imageUrl) => {
+        variant.images.forEach((image) => {
+          const url = typeof image === "string" ? image : image.imageUrl;
+          if (!url) return;
           images.push({
-            url: imageUrl,
+            url,
             color: color,
             isExisting: true,
           });
@@ -80,26 +91,13 @@ const transformAPIDataToFormData = (apiData) => {
 
       if (variant.sizes && Array.isArray(variant.sizes)) {
         colorSizes[color] = variant.sizes.map((size) => ({
-          id: uuidv4(),
+          id: crypto.randomUUID(),
           value: size.size,
           quantity: size.stockCount,
         }));
       }
     });
   }
-
-  const genderMap = {
-    men: "male",
-    women: "female",
-    unisex: "unisex",
-  };
-
-  const groupMap = {
-    kids: "kids",
-    adults: "adults",
-    boys: "kids",
-    girls: "kids",
-  };
 
   return {
     formData: {
@@ -115,8 +113,8 @@ const transformAPIDataToFormData = (apiData) => {
       collection: apiData.collection || "",
       modelDetail: apiData.modelDetail || "",
       showToCustomer: apiData.isPublic || false,
-      gender: genderMap[apiData.gender] || apiData.gender || "",
-      group: groupMap[apiData.collectionType] || apiData.collectionType || "",
+      gender: apiData.gender || "",
+      group: apiData.collectionType || "",
       season: apiData.type || "",
       numberOfProducts: apiData.numberOfProducts || 0,
     },
@@ -144,6 +142,7 @@ const AddProduct = () => {
   const [editingSizeInfo, setEditingSizeInfo] = useState(null);
   const [editingImage, setEditingImage] = useState(null);
   const [editingImageColor, setEditingImageColor] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -215,7 +214,7 @@ const AddProduct = () => {
     }
   }, []);
 
-  const handleAddImages = useCallback(() => {
+  const handleAddImages = useCallback(async () => {
     if (tempFiles.length === 0 || !color) {
       toast.error("Please select images and a color.");
       return;
@@ -227,39 +226,39 @@ const AddProduct = () => {
       return;
     }
 
-    const newImages = tempFiles.map((file) => ({
-      file,
-      color: normalizedColor,
-      url: URL.createObjectURL(file),
-    }));
-
-    const newUrls = tempFiles.map((file) => URL.createObjectURL(file));
-
-    setFormData((prevData) => {
-      const isNewColor = !prevData.colors.includes(normalizedColor);
-
-      return {
-        ...prevData,
-        colors: isNewColor
-          ? [...prevData.colors, normalizedColor]
-          : prevData.colors,
-        images: [...prevData.images, ...newImages],
-      };
-    });
-
-    if (!colorSizes[normalizedColor]) {
-      setColorSizes((prev) => ({
-        ...prev,
-        [normalizedColor]: [],
+    try {
+      setIsUploading(true);
+      const uploaded = await productAPI.uploadImages(tempFiles);
+      const newImages = (uploaded.data?.urls || []).map((url) => ({
+        url,
+        color: normalizedColor,
       }));
-    }
 
-    setPreviewUrls((prev) => [...prev, ...newUrls]);
-    setTempFiles([]);
-    setColor("#000000");
+      setFormData((prevData) => {
+        const isNewColor = !prevData.colors.includes(normalizedColor);
+        return {
+          ...prevData,
+          colors: isNewColor
+            ? [...prevData.colors, normalizedColor]
+            : prevData.colors,
+          images: [...prevData.images, ...newImages],
+        };
+      });
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      if (!colorSizes[normalizedColor]) {
+        setColorSizes((prev) => ({
+          ...prev,
+          [normalizedColor]: [],
+        }));
+      }
+
+      setTempFiles([]);
+      setColor("#000000");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error) {
+      toast.error(apiError(error, "Could not upload images"));
+    } finally {
+      setIsUploading(false);
     }
   }, [tempFiles, color, colorSizes]);
 
@@ -409,7 +408,7 @@ const AddProduct = () => {
         }
 
         const newSize = {
-          id: uuidv4(),
+          id: crypto.randomUUID(),
           value: size.trim(),
           quantity: Math.max(1, quantity || 1),
         };
@@ -490,17 +489,6 @@ const AddProduct = () => {
   );
 
   const transformFormDataForAPI = useCallback((formData, colorGroups) => {
-    const genderMap = {
-      male: "men",
-      female: "women",
-      unisex: "unisex",
-    };
-
-    const groupMap = {
-      kids: "boys",
-      adults: "adults",
-    };
-
     const validColorGroups = colorGroups.filter(
       (group) => group.images && group.images.length > 0
     );
@@ -512,8 +500,8 @@ const AddProduct = () => {
       collection: formData.collection,
       modelDetail: formData.modelDetail,
       isPublic: formData.showToCustomer,
-      gender: genderMap[formData.gender] || formData.gender,
-      collectionType: groupMap[formData.group] || formData.group,
+      gender: formData.gender,
+      collectionType: formData.group,
       onSale: formData.isOnSale,
       discountPercent: formData.isOnSale ? Number(formData.discount) : 0,
       inStock: formData.inStock,
@@ -586,6 +574,13 @@ const AddProduct = () => {
       return;
     }
 
+    const missingSize = Object.entries(colorSizes).some(([, sizes]) => sizes.length === 0)
+      || formData.colors.some((item) => !(colorSizes[item] || []).length);
+    if (missingSize) {
+      toast.error("Add at least one size for every color");
+      return;
+    }
+
     if (!formData.gender) {
       toast.error("Please select gender");
       return;
@@ -644,9 +639,7 @@ const AddProduct = () => {
       }
     } catch (error) {
       console.error("Error submitting product:", error);
-      toast.error(
-        `Error ${id ? "updating" : "adding"} product: ${error.message}`
-      );
+      toast.error(apiError(error, `Could not ${id ? "update" : "add"} the product`));
     } finally {
       setIsLoading(false);
     }
@@ -668,7 +661,7 @@ const AddProduct = () => {
     });
   }, []);
 
-  const handleReplaceImage = useCallback(() => {
+  const handleReplaceImage = useCallback(async () => {
     if (tempFiles.length === 0) {
       toast.error("Please select a new image.");
       return;
@@ -679,34 +672,29 @@ const AddProduct = () => {
       return;
     }
 
-    const newFile = tempFiles[0];
-    const newUrl = URL.createObjectURL(newFile);
     const originalImage = editingImage.originalImage;
     const originalUrl =
       typeof originalImage === "string" ? originalImage : originalImage.url;
 
-    if (typeof originalUrl === "string" && originalUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(originalUrl);
-    }
+    try {
+      setIsUploading(true);
+      const uploaded = await productAPI.uploadImages([tempFiles[0]]);
+      const newUrl = uploaded.data?.urls?.[0];
+      if (!newUrl) throw new Error("Upload did not return an image URL");
 
-    setFormData((prevData) => ({
-      ...prevData,
-      images: prevData.images.map((img) =>
-        img.url === originalUrl
-          ? { ...img, file: newFile, url: newUrl, color: editingImage.color }
-          : img
-      ),
-    }));
-
-    setPreviewUrls((prevUrls) =>
-      prevUrls.map((url) => (url === originalUrl ? newUrl : url))
-    );
-
-    setTempFiles([]);
-    setEditingImage(null);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      setFormData((prevData) => ({
+        ...prevData,
+        images: prevData.images.map((img) =>
+          img.url === originalUrl ? { ...img, url: newUrl, color: editingImage.color } : img
+        ),
+      }));
+      setTempFiles([]);
+      setEditingImage(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error) {
+      toast.error(apiError(error, "Could not replace the image"));
+    } finally {
+      setIsUploading(false);
     }
   }, [tempFiles, editingImage]);
 
@@ -722,14 +710,17 @@ const AddProduct = () => {
 
   if (isFetching) {
     return (
+      <RoleGate allow={canWriteProducts}>
       <div className="max-w-4xl mx-auto p-4 add-product mt-[35px] flex justify-center items-center h-64">
         <Loader type="bubble-spin" bgColor="#000" size={50} />
         <span className="ml-4">Loading product data...</span>
       </div>
+      </RoleGate>
     );
   }
 
   return (
+    <RoleGate allow={canWriteProducts}>
     <div className="max-w-4xl mx-auto p-4 add-product mt-[35px]">
       <h2 className="text-2xl font-bold mb-6">
         {id ? "Edit Product" : "Add Product"}
@@ -833,8 +824,9 @@ const AddProduct = () => {
             className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           >
             <option value="">Select Gender</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
+            <option value="men">Men</option>
+            <option value="women">Women</option>
+            <option value="kids">Kids</option>
             <option value="unisex">Unisex</option>
           </select>
         </div>
@@ -850,22 +842,36 @@ const AddProduct = () => {
             className="w-full py-4 pl-4 pr-7 bg-transparent border-b border-black focus:outline-none focus:ring-0 focus:border-b-2 focus:border-black transition-colors duration-200"
           >
             <option value="">Select Group</option>
-            <option value="kids">Kids/Boys</option>
-            <option value="adults">Adults</option>
+            <option value="men">Men</option>
+            <option value="women">Women</option>
             <option value="boys">Boys</option>
             <option value="girls">Girls</option>
+            <option value="unisex">Unisex</option>
+            <option value="other">Other</option>
           </select>
         </div>
 
-        <div>
-          <label className="block font-medium">Public</label>
-          <input
-            type="checkbox"
-            name="showToCustomer"
-            checked={formData.showToCustomer}
-            onChange={handleInputChange}
-            className="mt-2"
-          />
+        <div className="flex gap-8">
+          <div>
+            <label className="block font-medium">Public</label>
+            <input
+              type="checkbox"
+              name="showToCustomer"
+              checked={formData.showToCustomer}
+              onChange={handleInputChange}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <label className="block font-medium">In stock</label>
+            <input
+              type="checkbox"
+              name="inStock"
+              checked={formData.inStock}
+              onChange={handleInputChange}
+              className="mt-2"
+            />
+          </div>
         </div>
 
         {/* Sale & Discount */}
@@ -946,9 +952,10 @@ const AddProduct = () => {
         <button
           type="button"
           onClick={handleAddImages}
-          className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 mb-4"
+          disabled={isUploading}
+          className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 mb-4 disabled:opacity-50"
         >
-          Add Images
+          {isUploading ? "Uploading..." : "Add Images"}
         </button>
 
         <div>
@@ -1011,6 +1018,7 @@ const AddProduct = () => {
         </div>
       </form>
     </div>
+    </RoleGate>
   );
 };
 
