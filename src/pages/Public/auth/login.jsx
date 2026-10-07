@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import "../../../assets/css/auth.scss";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import * as yup from "yup";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
@@ -8,6 +8,9 @@ import { api } from "../../../utlis/customAPI";
 import { toast } from "react-toastify";
 import PasswordField from "../shareFiles/PasswordField";
 import Loader from "react-js-loader";
+import { useAuth } from "../../../context/AuthContext";
+import { STAFF_ROLES } from "../../../utlis/roles";
+import { apiError } from "../../../utlis/common";
 
 const schema = yup.object({
   email: yup
@@ -22,6 +25,7 @@ const schema = yup.object({
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
   const {
     register,
@@ -34,16 +38,17 @@ const Login = () => {
     api
       .post("/auth/login", data)
       .then((res) => {
+        const session = res.data.data;
+        if (!STAFF_ROLES.includes(session.user.role)) {
+          toast.error("This portal is for the store team.");
+          return;
+        }
+        login(session.user, session.token);
         toast.success(res.data.message);
-        const token = res.data.token;
-        localStorage.setItem("token", token);
         navigate("/");
       })
       .catch((err) => {
-        const errorMessage =
-          err.response?.data?.message || "Something went wrong";
-        toast.error(errorMessage);
-        console.log(err);
+        toast.error(apiError(err));
       })
       .finally(() => {
         setLoading(false);
@@ -99,10 +104,7 @@ const Login = () => {
           </button>
         </form>
         <p className="text-sm text-center">
-          Don't have an account ?{" "}
-          <Link to="/register" className="hover:underline cursor-pointer">
-            Create Account
-          </Link>
+          Team accounts are created by an admin.
         </p>
       </div>
     </div>

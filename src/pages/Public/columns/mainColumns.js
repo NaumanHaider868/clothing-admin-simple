@@ -41,7 +41,7 @@ const ProductImage = ({ product }) => {
   );
 };
 
-export const productColumns = (handleEdit, handleDelete) => [
+export const productColumns = (handleEdit, handleDelete, { canEdit = true, canDelete = true } = {}) => [
   columnHelper.accessor("image", {
     header: <div className="font-[monospace] font-xs">Image</div>,
     cell: (info) => {
@@ -153,35 +153,45 @@ export const productColumns = (handleEdit, handleDelete) => [
     },
   }),
 
-  columnHelper.display({
-    id: "actions",
-    header: <div className="font-[monospace]">Actions</div>,
-    cell: (info) => {
-      const product = info.row.original;
-      return (
-        <div className="flex justify-center gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center justify-center p-2 rounded-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleEdit(product.id);
-            }}
-            aria-label="Edit product"
-          >
-            <MdEdit size={18} />
-          </button>
-          <button
-            className="bg-black text-white p-2 rounded-full hover:bg-gray-800 transition"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(product.id);
-            }}
-          >
-            <MdDelete size={18} />
-          </button>
-        </div>
-      );
-    },
-  }),
+  ...(canEdit || canDelete
+    ? [
+        columnHelper.display({
+          id: "actions",
+          header: <div className="font-[monospace]">Actions</div>,
+          cell: (info) => {
+            const product = info.row.original;
+            return (
+              <div className="flex justify-center gap-2">
+                {canEdit ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center p-2 rounded-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit(product.id);
+                    }}
+                    aria-label="Edit product"
+                  >
+                    <MdEdit size={18} />
+                  </button>
+                ) : null}
+                {canDelete ? (
+                  <button
+                    type="button"
+                    className="bg-black text-white p-2 rounded-full hover:bg-gray-800 transition"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(product.id);
+                    }}
+                    aria-label="Delete product"
+                  >
+                    <MdDelete size={18} />
+                  </button>
+                ) : null}
+              </div>
+            );
+          },
+        }),
+      ]
+    : []),
 ];

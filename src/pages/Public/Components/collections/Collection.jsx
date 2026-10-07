@@ -9,13 +9,25 @@ import { api } from "../../../../utlis/customAPI";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import TableSkeleton from "../../../../utlis/shimmar/table";
 import { productColumns } from "../../columns/mainColumns";
-import ErrorHandler from "../../../../utlis/common";
-import { Link, useNavigate } from "react-router-dom";
+import ErrorHandler, { apiError } from "../../../../utlis/common";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
+import { PageHeader } from "../../../../components/PageHeader";
+import { Pagination } from "../../../../components/Pagination";
+import { ConfirmDialog } from "../../../../components/ConfirmDialog";
+import { usePage } from "../../../../utlis/usePage";
+import { useAuth } from "../../../../context/AuthContext";
+import { canDeleteProducts, canWriteProducts } from "../../../../utlis/roles";
+import { seasonLabel } from "../../../../utlis/seasons";
 
 export const Collection = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const season = (searchParams.get("season") || "").toLowerCase();
+  const [search, setSearch] = useState("");
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["products"],
@@ -42,54 +54,56 @@ export const Collection = () => {
       toast.success("Product deleted successfully");
     },
     onError: (error) => {
-      toast.error(error.response?.data?.message || "Failed to delete product");
+      toast.error(apiError(error, "Failed to delete product"));
     },
   });
 
-  const products = Array.isArray(data?.data) ? data.data : [];
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(products.length / itemsPerPage);
-
-  const paginatedProducts = useMemo(() => {
-    return products.slice(
-      (currentPage - 1) * itemsPerPage,
-      currentPage * itemsPerPage
-    );
-  }, [products, currentPage]);
+  const products = useMemo(
+    () => (Array.isArray(data?.data) ? data.data : []),
+    [data]
+  );
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return products.filter((product) => {
+      const matchesSeason = !season || product.type?.toLowerCase() === season;
+      const matchesSearch = !term || product.name?.toLowerCase().includes(term);
+      return matchesSeason && matchesSearch;
+    });
+  }, [products, search, season]);
+  const { page, setPage, totalPages, rows } = usePage(filtered);
 
   const handleEdit = useCallback(
     (id) => {
-      console.log(id);
       navigate(`/product_action`, { state: { id } });
     },
     [navigate]
   );
 
   const handleDelete = useCallback((id) => {
-    if (window.confirm("Are you sure you want to delete this product?")) {
-      deleteMutation.mutate(id);
-    }
+    setPendingDelete(id);
   }, []);
 
   const columns = useMemo(
-    () => productColumns(handleEdit, handleDelete),
-    [handleDelete, handleEdit]
+    () =>
+      productColumns(handleEdit, handleDelete, {
+        canEdit: canWriteProducts(user?.role),
+        canDelete: canDeleteProducts(user?.role),
+      }),
+    [handleDelete, handleEdit, user?.role]
   );
 
   const table = useReactTable({
-    data: paginatedProducts,
+    data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    manualPagination: true, // optional, makes intent clear
+    getRowId: (row) => String(row.id),
+    manualPagination: true,
+    autoResetPageIndex: false,
   });
 
   useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [totalPages, currentPage]);
+    setPage(1);
+  }, [search, season, setPage]);
 
   if (isLoading) {
     return (
@@ -110,8 +124,19 @@ export const Collection = () => {
   }
 
   return (
-    <div className="collection w-full pr-[52px]">
-      <div className="mt-10 overflow-x-auto bg-white rounded-lg shadow">
+    <div className="collection w-full pr-[52px] pt-6">
+      <PageHeader
+        title={season ? seasonLabel(season) : "Products"}
+        action={
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name"
+            className="py-2 px-3 border-b border-black bg-transparent font-[monospace]"
+          />
+        }
+      />
+      <div className="overflow-x-auto bg-white rounded-lg shadow">
         <table className="min-w-full text-sm text-left">
           <thead className="bg-gray-100 border-b text-gray-700 uppercase text-xs">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -128,10 +153,17 @@ export const Collection = () => {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => {
+            {table.getCoreRowModel().rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className="px-4 py-8 text-center font-[monospace] text-gray-500">
+                  No products match this list.
+                </td>
+              </tr>
+            ) : null}
+            {table.getCoreRowModel().rows.map((row) => {
               return (
                 <tr
-                  key={row.id}
+                  key={row.original.id}
                   className="border-b hover:bg-gray-50 transition-colors"
                 >
                   {row.getVisibleCells().map((cell) => {
@@ -170,41 +202,20 @@ export const Collection = () => {
         </table>
       </div>
 
-      {products.length > 0 && (
-        <div className="flex justify-end items-center gap-2 mt-4">
-          <button
-            className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-            disabled={currentPage === 1}
-          >
-            Prev
-          </button>
-
-          {[...Array(totalPages)].map((_, index) => (
-            <button
-              key={index}
-              onClick={() => setCurrentPage(index + 1)}
-              className={`px-3 py-1 rounded ${
-                currentPage === index + 1
-                  ? "bg-black text-white"
-                  : "bg-gray-200 hover:bg-gray-300"
-              }`}
-            >
-              {index + 1}
-            </button>
-          ))}
-
-          <button
-            className="px-3 py-1 font-[monospace] rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
-            onClick={() =>
-              setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-            }
-            disabled={currentPage === totalPages}
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete product"
+        message="This removes the product. The deletion log will store your name and the product."
+        confirmLabel="Delete"
+        busy={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => {
+          deleteMutation.mutate(pendingDelete, {
+            onSettled: () => setPendingDelete(null),
+          });
+        }}
+      />
     </div>
   );
 };

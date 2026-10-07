@@ -51,12 +51,16 @@ const Register = () => {
   const onSubmit = (data) => {
     setLoading(true);
     api
-      .post("/auth/register", data)
+      .post("/auth/register", {
+        firstName: data.first_name,
+        lastName: data.last_name,
+        email: data.email,
+        phone: data.phone,
+        password: data.password,
+      })
       .then((res) => {
-        toast.success(res.data.message);
-        const token = res.data.token;
-        localStorage.setItem("token", token);
-        navigate("/");
+        toast.success(res.data.message || "Check your email to verify the account");
+        navigate("/login");
       })
       .catch((err) => {
         const errorMessage =
