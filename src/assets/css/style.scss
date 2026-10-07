@@ -83,7 +83,8 @@
       transition: width 0.3s ease;
     }
 
-    li:hover::after {
+    li:hover::after,
+    li.active::after {
       width: 100%;
     }
 
